@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 1.27.x
+          cache-dependency-path: apps/api/go.sum
+      - name: Download dependencies
+        working-directory: apps/api
+        run: go mod download
+      - name: Check formatting
+        working-directory: apps/api
+        run: gofmt -w . && git diff --exit-code
+      - name: Vet
+        working-directory: apps/api
+        run: go vet ./...
+      - name: Unit and PostgreSQL integration tests
+        working-directory: apps/api
+        run: go test -race ./...
+      - name: Verify sqlc generation
+        working-directory: apps/api
+        run: go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate && git diff --exit-code
+      - name: Lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.13.2
+          working-directory: apps/api
+      - name: Vulnerability scan
+        working-directory: apps/api
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.21.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/web lint
+      - run: pnpm --dir apps/web typecheck
+      - run: pnpm --dir apps/web test
+      - run: pnpm --dir apps/web build
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

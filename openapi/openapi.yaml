@@ -1,0 +1,496 @@
+openapi: 3.1.0
+info:
+  title: Opora API
+  version: 0.3.0
+  description: Authenticated API for the Opora student document workspace.
+servers:
+  - url: http://localhost:8080
+tags:
+  - name: Health
+  - name: Auth
+  - name: Students
+  - name: Documents
+  - name: Users
+  - name: Access
+  - name: Audit
+paths:
+  /health/live:
+    get:
+      operationId: getLiveness
+      tags: [Health]
+      responses:
+        "200": { $ref: "#/components/responses/Health" }
+  /health/ready:
+    get:
+      operationId: getReadiness
+      tags: [Health]
+      responses:
+        "200": { $ref: "#/components/responses/Health" }
+        "503": { $ref: "#/components/responses/Error" }
+  /api/v1/auth/login:
+    post:
+      operationId: login
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: Session created. Sets opaque HttpOnly session and CSRF cookies.
+          content: { application/json: { schema: { $ref: "#/components/schemas/CurrentUser" } } }
+        "401": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+  /api/v1/auth/logout:
+    post:
+      operationId: logout
+      tags: [Auth]
+      security: [{ sessionCookie: [], csrfHeader: [] }]
+      responses:
+        "204": { description: Session revoked and cookies cleared. }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /api/v1/me:
+    get:
+      operationId: getCurrentUser
+      tags: [Auth]
+      security: [{ sessionCookie: [] }]
+      responses:
+        "200":
+          description: Active session and effective permissions.
+          content: { application/json: { schema: { $ref: "#/components/schemas/CurrentUser" } } }
+        "401": { $ref: "#/components/responses/Error" }
+  /api/v1/students:
+    get:
+      operationId: listStudents
+      tags: [Students]
+      security: [{ sessionCookie: [] }]
+      responses:
+        "200":
+          description: Students visible to the current membership.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties: { items: { type: array, items: { $ref: "#/components/schemas/Student" } } }
+        "401": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createStudent
+      tags: [Students]
+      security: [{ sessionCookie: [], csrfHeader: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/CreateStudent" } } }
+      responses:
+        "201":
+          description: Student created.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Student" } } }
+        "403": { $ref: "#/components/responses/Error" }
+  /api/v1/students/{studentId}:
+    parameters: [{ $ref: "#/components/parameters/StudentID" }]
+    get:
+      operationId: getStudent
+      tags: [Students]
+      security: [{ sessionCookie: [] }]
+      responses:
+        "200":
+          description: Tenant-scoped student.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Student" } } }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/roles:
+    get:
+      operationId: listRoles
+      tags: [Users]
+      security: [{ sessionCookie: [] }]
+      responses:
+        "200":
+          description: Roles configured for the current organization.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties: { items: { type: array, items: { $ref: "#/components/schemas/Role" } } }
+        "403": { $ref: "#/components/responses/Error" }
+  /api/v1/users:
+    get:
+      operationId: listUsers
+      tags: [Users]
+      security: [{ sessionCookie: [] }]
+      responses:
+        "200":
+          description: Users and active memberships in the current organization.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties: { items: { type: array, items: { $ref: "#/components/schemas/OrganizationUser" } } }
+        "403": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createUser
+      tags: [Users]
+      security: [{ sessionCookie: [], csrfHeader: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/CreateUser" } } }
+      responses:
+        "201":
+          description: Local MVP account created. The initial password is returned only in this response.
+          content: { application/json: { schema: { $ref: "#/components/schemas/OrganizationUser" } } }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v1/students/{studentId}/access:
+    parameters: [{ $ref: "#/components/parameters/StudentID" }]
+    get:
+      operationId: listStudentAccess
+      tags: [Access]
+      security: [{ sessionCookie: [] }]
+      responses:
+        "200":
+          description: Active additive grants for the student.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties: { items: { type: array, items: { $ref: "#/components/schemas/StudentAccess" } } }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: setStudentAccess
+      tags: [Access]
+      security: [{ sessionCookie: [], csrfHeader: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/SetStudentAccess" } } }
+      responses:
+        "204": { description: Grants replaced atomically. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      operationId: updateStudentAccess
+      tags: [Access]
+      security: [{ sessionCookie: [], csrfHeader: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/SetStudentAccess" } } }
+      responses:
+        "204": { description: Grants replaced atomically. }
+        "403": { $ref: "#/components/responses/Error" }
+  /api/v1/students/{studentId}/access/{userId}:
+    parameters:
+      - { $ref: "#/components/parameters/StudentID" }
+      - { $ref: "#/components/parameters/UserID" }
+    delete:
+      operationId: revokeStudentAccess
+      tags: [Access]
+      security: [{ sessionCookie: [], csrfHeader: [] }]
+      responses:
+        "204": { description: All grants revoked. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/audit:
+    get:
+      operationId: listAuditEvents
+      tags: [Audit]
+      security: [{ sessionCookie: [] }]
+      responses:
+        "200":
+          description: Append-only audit events for the current organization.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties: { items: { type: array, items: { $ref: "#/components/schemas/AuditEvent" } } }
+        "403": { $ref: "#/components/responses/Error" }
+  /api/v1/students/{studentId}/documents:
+    parameters: [{ $ref: "#/components/parameters/StudentID" }]
+    get:
+      operationId: listStudentDocuments
+      tags: [Documents]
+      security: [{ sessionCookie: [] }]
+      responses:
+        "200":
+          description: Authorized document workspace.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties: { items: { type: array, items: { $ref: "#/components/schemas/Document" } } }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: uploadStudentDocument
+      tags: [Documents]
+      security: [{ sessionCookie: [], csrfHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary, description: DOCX or PDF, maximum 25 MB. }
+                title: { type: string, maxLength: 255 }
+                documentType: { type: string, maxLength: 100 }
+                confidentialityLevel: { type: string, enum: [standard, restricted], default: standard }
+      responses:
+        "201":
+          description: Scanned immutable version 1 stored in private S3.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Document" } } }
+        "403": { $ref: "#/components/responses/Error" }
+        "413": { $ref: "#/components/responses/Error" }
+        "415": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /api/v1/documents/{documentId}:
+    parameters: [{ $ref: "#/components/parameters/DocumentID" }]
+    get:
+      operationId: getDocument
+      tags: [Documents]
+      security: [{ sessionCookie: [] }]
+      responses:
+        "200":
+          description: Tenant-scoped document metadata.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Document" } } }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/documents/{documentId}/versions:
+    parameters: [{ $ref: "#/components/parameters/DocumentID" }]
+    get:
+      operationId: listDocumentVersions
+      tags: [Documents]
+      security: [{ sessionCookie: [] }]
+      responses:
+        "200":
+          description: Immutable version history, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties: { items: { type: array, items: { $ref: "#/components/schemas/DocumentVersion" } } }
+        "403": { $ref: "#/components/responses/Error" }
+  /api/v1/documents/{documentId}/download:
+    parameters: [{ $ref: "#/components/parameters/DocumentID" }]
+    get:
+      operationId: downloadCurrentDocumentVersion
+      tags: [Documents]
+      security: [{ sessionCookie: [] }]
+      responses:
+        "200":
+          description: Authorized current version stream.
+          content:
+            application/pdf: { schema: { type: string, format: binary } }
+            application/vnd.openxmlformats-officedocument.wordprocessingml.document: { schema: { type: string, format: binary } }
+        "403": { $ref: "#/components/responses/Error" }
+  /api/v1/documents/{documentId}/preview:
+    parameters: [{ $ref: "#/components/parameters/DocumentID" }]
+    get:
+      operationId: previewPDF
+      tags: [Documents]
+      security: [{ sessionCookie: [] }]
+      responses:
+        "200":
+          description: Authorized inline PDF stream.
+          content:
+            application/pdf: { schema: { type: string, format: binary } }
+        "403": { $ref: "#/components/responses/Error" }
+        "415": { $ref: "#/components/responses/Error" }
+  /api/v1/documents/{documentId}/versions/{versionId}/download:
+    parameters: [{ $ref: "#/components/parameters/DocumentID" }, { $ref: "#/components/parameters/VersionID" }]
+    get:
+      operationId: downloadDocumentVersion
+      tags: [Documents]
+      security: [{ sessionCookie: [] }]
+      responses:
+        "200": { description: Authorized immutable version stream. }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/documents/{documentId}/editor:
+    parameters: [{ $ref: "#/components/parameters/DocumentID" }]
+    get:
+      operationId: getDocumentEditorConfig
+      tags: [Documents]
+      security: [{ sessionCookie: [] }]
+      responses:
+        "200":
+          description: JWT-signed ONLYOFFICE config for the current DOCX version.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [documentServerUrl, config]
+                properties:
+                  documentServerUrl: { type: string, format: uri }
+                  config: { type: object, additionalProperties: true }
+        "403": { $ref: "#/components/responses/Error" }
+        "415": { $ref: "#/components/responses/Error" }
+components:
+  securitySchemes:
+    sessionCookie: { type: apiKey, in: cookie, name: opora_session }
+    csrfHeader: { type: apiKey, in: header, name: X-CSRF-Token }
+  parameters:
+    StudentID: { name: studentId, in: path, required: true, schema: { type: string, format: uuid } }
+    DocumentID: { name: documentId, in: path, required: true, schema: { type: string, format: uuid } }
+    VersionID: { name: versionId, in: path, required: true, schema: { type: string, format: uuid } }
+    UserID: { name: userId, in: path, required: true, schema: { type: string, format: uuid } }
+  responses:
+    Health:
+      description: Healthy.
+      content: { application/json: { schema: { $ref: "#/components/schemas/HealthResponse" } } }
+    Error:
+      description: Stable public error envelope.
+      content: { application/json: { schema: { $ref: "#/components/schemas/ErrorResponse" } } }
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status]
+      properties: { status: { type: string } }
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties: { email: { type: string, format: email }, password: { type: string, format: password } }
+    CurrentUser:
+      type: object
+      required: [id, email, displayName, organization, permissions]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        displayName: { type: string }
+        organization:
+          type: object
+          required: [id, name]
+          properties: { id: { type: string, format: uuid }, name: { type: string } }
+        permissions: { type: array, items: { type: string } }
+    CreateStudent:
+      type: object
+      additionalProperties: false
+      required: [lastName, firstName]
+      properties:
+        lastName: { type: string, maxLength: 100 }
+        firstName: { type: string, maxLength: 100 }
+        middleName: { type: [string, "null"], maxLength: 100 }
+        birthDate: { type: [string, "null"], format: date }
+        className: { type: [string, "null"], maxLength: 32 }
+    Student:
+      type: object
+      required: [id, lastName, firstName, documentCount, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        lastName: { type: string }
+        firstName: { type: string }
+        middleName: { type: [string, "null"] }
+        birthDate: { type: [string, "null"], format: date }
+        className: { type: [string, "null"] }
+        documentCount: { type: integer, format: int64 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    Role:
+      type: object
+      required: [id, key, name, isSystem]
+      properties:
+        id: { type: string, format: uuid }
+        key: { type: string }
+        name: { type: string }
+        isSystem: { type: boolean }
+    CreateUser:
+      type: object
+      additionalProperties: false
+      required: [lastName, firstName, email, roleKey]
+      properties:
+        lastName: { type: string, maxLength: 100 }
+        firstName: { type: string, maxLength: 100 }
+        middleName: { type: [string, "null"], maxLength: 100 }
+        email: { type: string, format: email, maxLength: 320 }
+        roleKey: { type: string }
+    OrganizationUser:
+      type: object
+      required: [id, roleId, displayName, email, roleKey, roleName, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        roleId: { type: string, format: uuid }
+        displayName: { type: string }
+        email: { type: string, format: email }
+        roleKey: { type: string }
+        roleName: { type: string }
+        status: { type: string, enum: [active, invited, blocked] }
+        createdAt: { type: string, format: date-time }
+        initialPassword: { type: string, description: Present only in the create response. }
+    StudentGrant:
+      type: string
+      enum: [view, upload, download, edit]
+    StudentAccess:
+      type: object
+      required: [userId, displayName, email, roleKey, roleName, grants]
+      properties:
+        userId: { type: string, format: uuid }
+        displayName: { type: string }
+        email: { type: string, format: email }
+        roleKey: { type: string }
+        roleName: { type: string }
+        grants: { type: array, items: { $ref: "#/components/schemas/StudentGrant" } }
+    SetStudentAccess:
+      type: object
+      additionalProperties: false
+      required: [userId, grants]
+      properties:
+        userId: { type: string, format: uuid }
+        grants:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { $ref: "#/components/schemas/StudentGrant" }
+    AuditEvent:
+      type: object
+      required: [id, actorName, action, resourceType, createdAt, metadata]
+      properties:
+        id: { type: string, format: uuid }
+        actorName: { type: string }
+        action: { type: string }
+        resourceType: { type: string }
+        resourceId: { type: [string, "null"], format: uuid }
+        createdAt: { type: string, format: date-time }
+        metadata: { type: object, additionalProperties: true }
+    Document:
+      type: object
+      required: [id, studentId, title, confidentialityLevel, currentVersion, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        studentId: { type: string, format: uuid }
+        title: { type: string }
+        documentType: { type: [string, "null"] }
+        confidentialityLevel: { type: string, enum: [standard, restricted] }
+        currentVersion: { $ref: "#/components/schemas/DocumentVersion" }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    DocumentVersion:
+      type: object
+      required: [id, versionNumber, originalFilename, mimeType, size, sha256, changedBy, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        versionNumber: { type: integer, minimum: 1 }
+        originalFilename: { type: string }
+        mimeType: { type: string, enum: [application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document] }
+        size: { type: integer, format: int64, minimum: 1 }
+        sha256: { type: string, pattern: "^[0-9a-f]{64}$" }
+        changedBy: { type: string }
+        createdAt: { type: string, format: date-time }
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            requestId: { type: string }

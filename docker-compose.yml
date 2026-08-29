@@ -1,0 +1,108 @@
+name: opora
+
+services:
+  postgres:
+    image: postgres:18.6-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-opora}
+      POSTGRES_USER: ${POSTGRES_USER:-opora}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-opora_local_postgres_change_me}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    networks: [backend]
+
+  minio:
+    image: minio/minio:RELEASE.2025-07-23T15-54-02Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-opora_local_minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-opora_local_minio_change_me}
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 10s
+    restart: unless-stopped
+    networks: [backend]
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-07-21T05-28-08Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" &&
+        mc mb --ignore-existing "local/$${S3_BUCKET}" &&
+        mc anonymous set none "local/$${S3_BUCKET}"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-opora_local_minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-opora_local_minio_change_me}
+      S3_BUCKET: ${S3_BUCKET:-opora-documents}
+    restart: "no"
+    networks: [backend]
+
+  onlyoffice:
+    image: onlyoffice/documentserver:9.4.0.1
+    platform: linux/amd64
+    environment:
+      JWT_ENABLED: "true"
+      JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:-opora_local_onlyoffice_jwt_change_me_32_chars}
+      JWT_HEADER: AuthorizationJwt
+      ALLOW_PRIVATE_IP_ADDRESS: "true"
+    ports:
+      - "${ONLYOFFICE_PORT:-8082}:80"
+    volumes:
+      - onlyoffice-data:/var/www/onlyoffice/Data
+      - onlyoffice-logs:/var/log/onlyoffice
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/healthcheck"]
+      interval: 15s
+      timeout: 10s
+      retries: 30
+      start_period: 90s
+    restart: unless-stopped
+    networks: [backend]
+
+  clamav:
+    image: clamav/clamav:1.4.3
+    platform: linux/amd64
+    ports:
+      - "${CLAMAV_PORT:-3310}:3310"
+    volumes:
+      - clamav-data:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/clamdcheck.sh"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 120s
+    restart: unless-stopped
+    networks: [backend]
+
+volumes:
+  postgres-data:
+  minio-data:
+  onlyoffice-data:
+  onlyoffice-logs:
+  clamav-data:
+
+networks:
+  backend:
+    internal: false

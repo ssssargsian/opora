@@ -1,0 +1,24 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+
+# Go
+apps/api/bin/
+apps/api/coverage.out
+
+# Next.js / pnpm
+node_modules/
+.next/
+coverage/
+*.tsbuildinfo
+pnpm-debug.log*
+
+# Editors
+.idea/
+.vscode/
+*.swp
+
+# Local artifacts
+tmp/
+dist/

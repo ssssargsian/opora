@@ -1,0 +1,12 @@
+packages:
+  - apps/web
+
+verifyDepsBeforeRun: warn
+enableGlobalVirtualStore: false
+
+onlyBuiltDependencies:
+  - sharp
+  - unrs-resolver
+
+allowBuilds:
+  unrs-resolver: true
