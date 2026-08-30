@@ -452,7 +452,7 @@ components:
       required: [token, password]
       properties:
         token: { type: string, minLength: 32 }
-        password: { type: string, format: password, minLength: 12 }
+        password: { type: string, format: password, minLength: 8, description: Must contain at least one letter and one digit. }
     UpdateProfile:
       type: object
       additionalProperties: false
@@ -468,7 +468,7 @@ components:
       required: [currentPassword, newPassword]
       properties:
         currentPassword: { type: string, format: password }
-        newPassword: { type: string, format: password, minLength: 12 }
+        newPassword: { type: string, format: password, minLength: 8, description: Must contain at least one letter and one digit. }
     CurrentUser:
       type: object
       required: [id, email, displayName, lastName, firstName, organization, permissions]

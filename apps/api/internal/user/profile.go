@@ -132,7 +132,7 @@ func (s *Service) UpdateProfile(ctx context.Context, actor access.Actor, input P
 }
 
 func (s *Service) ChangePassword(ctx context.Context, actor access.Actor, currentSessionID uuid.UUID, input PasswordInput, audit RequestAudit) error {
-	if len(input.CurrentPassword) == 0 || len(input.NewPassword) < 12 || len(input.NewPassword) > 1024 {
+	if len(input.CurrentPassword) == 0 || auth.ValidateNewPassword(input.NewPassword) != nil {
 		return ErrInvalidInput
 	}
 	currentHash, err := s.repo.PasswordHash(ctx, actor)

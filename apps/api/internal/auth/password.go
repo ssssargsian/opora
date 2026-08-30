@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"runtime"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"golang.org/x/crypto/argon2"
 )
@@ -20,10 +22,26 @@ const (
 	argonKeyBytes    = 32
 )
 
+// ValidateNewPassword applies the single password policy used by every account flow.
+func ValidateNewPassword(password string) error {
+	if utf8.RuneCountInString(password) < 8 || len(password) > 1024 {
+		return errors.New("password length is invalid")
+	}
+	var hasLetter, hasDigit bool
+	for _, character := range password {
+		hasLetter = hasLetter || unicode.IsLetter(character)
+		hasDigit = hasDigit || unicode.IsDigit(character)
+	}
+	if !hasLetter || !hasDigit {
+		return errors.New("password complexity is invalid")
+	}
+	return nil
+}
+
 // HashPassword creates a PHC-formatted Argon2id password hash.
 func HashPassword(password string) (string, error) {
-	if len(password) < 12 || len(password) > 1024 {
-		return "", errors.New("password length is invalid")
+	if err := ValidateNewPassword(password); err != nil {
+		return "", err
 	}
 	salt := make([]byte, argonSaltBytes)
 	if _, err := rand.Read(salt); err != nil {

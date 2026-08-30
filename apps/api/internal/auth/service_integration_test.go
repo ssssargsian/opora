@@ -14,7 +14,7 @@ import (
 
 func TestPersistentSessionExpiryAndLogout(t *testing.T) {
 	pool := testdatabase.Start(t)
-	password := "test-password-long-enough"
+	password := "test-password-long-enough-1"
 	seedAccount(t, pool, password)
 	repository := NewRepository(pool)
 	service := NewService(repository, 7*24*time.Hour)

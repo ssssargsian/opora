@@ -83,7 +83,7 @@ func TestCreateUserIsTenantScopedAndCanAcceptInvitation(t *testing.T) {
 	if mailer.message.Token == firstToken {
 		t.Fatal("resend reused invitation token")
 	}
-	if _, err = service.AcceptInvitation(ctx, AcceptInvitationInput{Token: firstToken, Password: "unused-secure-password"}); !errors.Is(err, ErrUsedInvitation) {
+	if _, err = service.AcceptInvitation(ctx, AcceptInvitationInput{Token: firstToken, Password: "unused-secure-password-1"}); !errors.Is(err, ErrUsedInvitation) {
 		t.Fatalf("old invitation after resend error=%v", err)
 	}
 	const password = "new-secure-password-123"

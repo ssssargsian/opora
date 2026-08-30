@@ -16,7 +16,13 @@ export function useCurrentUser(): CurrentUser {
 
 export function AuthBoundary({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const query = useQuery({ queryKey: ["me"], queryFn: authAPI.me, retry: (count, error) => !(error instanceof APIError && error.status === 401) && count < 2 });
+  const query = useQuery({
+    queryKey: ["me"],
+    queryFn: authAPI.me,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: "always",
+    retry: (count, error) => !(error instanceof APIError && error.status === 401) && count < 2,
+  });
 
   useEffect(() => {
     if (query.error instanceof APIError && query.error.status === 401) router.replace("/login");

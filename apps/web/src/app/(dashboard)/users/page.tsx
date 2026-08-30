@@ -53,8 +53,8 @@ export default function UsersPage() {
         {users.data?.length === 0 && <div className="data-panel empty-state"><UsersRound size={30} /><strong>Специалисты ещё не добавлены</strong><span>Добавьте сотрудника и назначьте ему роль.</span>{canCreate && <Button type="button" onClick={() => setDialogOpen(true)}><UserPlus size={17} />Добавить специалиста</Button>}</div>}
         {!canView && <div className="data-panel empty-state"><UsersRound size={30} /><strong>Список специалистов недоступен</strong><span>Вы можете создать учётную запись, но просмотр списка требует отдельного разрешения.</span></div>}
       </section>
-      {dialogOpen && <CreateUserDialog onClose={() => setDialogOpen(false)} onCreated={created} />}
-      {editing && <EditUserDialog user={editing} onClose={() => setEditing(null)} onUpdated={() => { setEditing(null); setToast("Данные специалиста обновлены"); void queryClient.invalidateQueries({ queryKey: ["users"] }); }} />}
+      {dialogOpen && canCreate && <CreateUserDialog onClose={() => setDialogOpen(false)} onCreated={created} />}
+      {editing && canManage && <EditUserDialog user={editing} onClose={() => setEditing(null)} onUpdated={() => { setEditing(null); setToast("Данные специалиста обновлены"); void queryClient.invalidateQueries({ queryKey: ["users"] }); }} />}
       {toast && <div className="toast toast-wide" role="status">{toast}</div>}
     </>
   );

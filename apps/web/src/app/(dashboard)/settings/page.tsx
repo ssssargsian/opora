@@ -4,15 +4,16 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Building2, LockKeyhole, UserRound } from "lucide-react";
 import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 
+import { newPasswordSchema, PasswordInput, PasswordRequirements } from "@/components/auth/password-fields";
 import { Button } from "@/components/ui/button";
 import { useCurrentUser } from "@/features/auth/auth-boundary";
 import { APIError, authAPI, organizationAPI, type CurrentUser } from "@/lib/api/client";
 
 const profileSchema = z.object({ lastName: z.string().trim().min(1, "Укажите фамилию").max(100), firstName: z.string().trim().min(1, "Укажите имя").max(100), middleName: z.string().trim().max(100), email: z.email("Введите корректный email") });
-const passwordSchema = z.object({ currentPassword: z.string().min(1, "Введите текущий пароль"), newPassword: z.string().min(12, "Минимум 12 символов"), confirmation: z.string() }).refine((value) => value.newPassword === value.confirmation, { path: ["confirmation"], message: "Пароли не совпадают" });
+const passwordSchema = z.object({ currentPassword: z.string().min(1, "Введите текущий пароль"), newPassword: newPasswordSchema, confirmation: z.string().min(1, "Повторите пароль") }).refine((value) => value.newPassword === value.confirmation, { path: ["confirmation"], message: "Пароли не совпадают" });
 const organizationSchema = z.object({ name: z.string().trim().min(1, "Укажите название").max(255) });
 
 export default function SettingsPage() {
@@ -31,10 +32,12 @@ function ProfileForm({ user, notify }: { user: CurrentUser; notify: (message: st
 }
 
 function PasswordForm({ notify }: { notify: (message: string) => void }) {
-  const form = useForm<z.infer<typeof passwordSchema>>({ resolver: zodResolver(passwordSchema), defaultValues: { currentPassword: "", newPassword: "", confirmation: "" } });
+  const form = useForm<z.infer<typeof passwordSchema>>({ resolver: zodResolver(passwordSchema), mode: "onChange", defaultValues: { currentPassword: "", newPassword: "", confirmation: "" } });
   const mutation = useMutation({ mutationFn: ({ currentPassword, newPassword }: z.infer<typeof passwordSchema>) => authAPI.changePassword({ currentPassword, newPassword }), onSuccess: () => { form.reset(); notify("Пароль изменён, остальные сессии завершены"); } });
   const error = mutation.error instanceof APIError && mutation.error.code === "current_password_invalid" ? "Текущий пароль указан неверно" : "Не удалось изменить пароль";
-  return <article className="settings-section"><header><span className="settings-icon"><LockKeyhole size={20} /></span><div><h2>Безопасность</h2><p>После смены пароля остальные активные сессии будут завершены.</p></div></header><form className="settings-form" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}><div className="form-grid"><label className="form-grid-wide"><span>Текущий пароль</span><input type="password" autoComplete="current-password" {...form.register("currentPassword")} />{form.formState.errors.currentPassword && <small>{form.formState.errors.currentPassword.message}</small>}</label><label><span>Новый пароль</span><input type="password" autoComplete="new-password" {...form.register("newPassword")} />{form.formState.errors.newPassword && <small>{form.formState.errors.newPassword.message}</small>}</label><label><span>Повторите пароль</span><input type="password" autoComplete="new-password" {...form.register("confirmation")} />{form.formState.errors.confirmation && <small>{form.formState.errors.confirmation.message}</small>}</label></div>{mutation.isError && <div className="form-error" role="alert">{error}</div>}<footer><Button type="submit" disabled={mutation.isPending}>{mutation.isPending ? "Изменяем…" : "Сменить пароль"}</Button></footer></form></article>;
+  const newPassword = useWatch({ control: form.control, name: "newPassword" });
+  const confirmation = useWatch({ control: form.control, name: "confirmation" });
+  return <article className="settings-section"><header><span className="settings-icon"><LockKeyhole size={20} /></span><div><h2>Безопасность</h2><p>После смены пароля остальные активные сессии будут завершены.</p></div></header><form className="settings-form" onSubmit={form.handleSubmit((values) => mutation.mutate(values))} noValidate><div className="form-grid"><div className="form-grid-wide"><PasswordInput label="Текущий пароль" autoComplete="current-password" {...form.register("currentPassword")} error={form.formState.errors.currentPassword?.message} /></div><PasswordInput label="Новый пароль" autoComplete="new-password" {...form.register("newPassword")} error={form.formState.errors.newPassword?.message} /><PasswordInput label="Повторите пароль" autoComplete="new-password" {...form.register("confirmation")} error={form.formState.errors.confirmation?.message} /></div><PasswordRequirements password={newPassword} confirmation={confirmation} />{mutation.isError && <div className="form-error" role="alert">{error}</div>}<footer><Button type="submit" disabled={mutation.isPending || !form.formState.isValid}>{mutation.isPending ? "Изменяем…" : "Сменить пароль"}</Button></footer></form></article>;
 }
 
 function OrganizationForm({ name, notify }: { name: string; notify: (message: string) => void }) {

@@ -24,7 +24,7 @@ type LoginResult struct {
 }
 
 func NewService(repo *Repository, ttl time.Duration) *Service {
-	dummy, _ := HashPassword("invalid-password-placeholder")
+	dummy, _ := HashPassword("invalid-password-placeholder-1")
 	return &Service{repo: repo, ttl: ttl, now: time.Now, dummyPasswordHash: dummy}
 }
 

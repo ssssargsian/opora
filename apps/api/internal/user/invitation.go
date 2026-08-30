@@ -189,7 +189,7 @@ func (s *Service) ResendInvitation(ctx context.Context, actor access.Actor, user
 }
 
 func (s *Service) AcceptInvitation(ctx context.Context, input AcceptInvitationInput) (AcceptedInvitation, error) {
-	if len(input.Token) < 32 || len(input.Password) < 12 || len(input.Password) > 1024 {
+	if len(input.Token) < 32 || auth.ValidateNewPassword(input.Password) != nil {
 		return AcceptedInvitation{}, ErrInvalidInput
 	}
 	passwordHash, err := auth.HashPassword(input.Password)
