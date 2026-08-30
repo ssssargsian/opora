@@ -33,18 +33,18 @@ app_domain="$(awk -F= '$1 == "APP_DOMAIN" {print $2}' "$ENV_FILE")"
 office_domain="$(awk -F= '$1 == "OFFICE_DOMAIN" {print $2}' "$ENV_FILE")"
 expected_ip="${OPORA_EXPECTED_IP:-155.212.223.107}"
 
-curl --fail --silent --show-error --retry 12 --retry-delay 5 "http://127.0.0.1/health/ready" \
+curl --fail --silent --show-error --retry 12 --retry-all-errors --retry-delay 5 "http://127.0.0.1/health/ready" \
   -H "Host: ${app_domain}" >/dev/null
 
 app_ip="$(getent ahostsv4 "$app_domain" 2>/dev/null | awk '{print $1; exit}' || true)"
 office_ip="$(getent ahostsv4 "$office_domain" 2>/dev/null | awk '{print $1; exit}' || true)"
 if [[ "$app_ip" == "$expected_ip" ]]; then
-  curl --fail --silent --show-error --retry 18 --retry-delay 10 "https://${app_domain}/health/ready" >/dev/null
+  curl --fail --silent --show-error --retry 18 --retry-all-errors --retry-delay 10 "https://${app_domain}/health/ready" >/dev/null
 else
   echo "Application HTTPS check skipped until ${app_domain} resolves to ${expected_ip}." >&2
 fi
 if [[ "$office_ip" == "$expected_ip" ]]; then
-  curl --fail --silent --show-error --retry 18 --retry-delay 10 "https://${office_domain}/healthcheck" >/dev/null
+  curl --fail --silent --show-error --retry 18 --retry-all-errors --retry-delay 10 "https://${office_domain}/healthcheck" >/dev/null
 else
   echo "ONLYOFFICE HTTPS check skipped until ${office_domain} resolves to ${expected_ip}." >&2
 fi
