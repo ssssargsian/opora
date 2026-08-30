@@ -2,6 +2,7 @@
   "name": "@opora/web",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@11.24.0",
   "type": "module",
   "scripts": {
     "dev": "next dev",

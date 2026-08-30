@@ -159,6 +159,18 @@ pnpm build
 - MinIO Console: `http://localhost:9001`
 - ONLYOFFICE: `http://localhost:8082`
 
+## Production deployment
+
+Production stack runs entirely in Docker behind Caddy. The host publishes only SSH, HTTP, and HTTPS; API, web, PostgreSQL, MinIO, ClamAV, and ONLYOFFICE ports remain private. Initial provisioning, upgrades, first-admin creation, logs, and backups are documented in [deploy/README.md](deploy/README.md).
+
+```sh
+git clone https://github.com/ssssargsian/opora.git /opt/opora
+cd /opt/opora
+./deploy/provision-ubuntu.sh
+```
+
+The idempotent provisioner creates `.env.production` with random credentials and preserves it and all Docker volumes on repeat runs. Production never uses `DEV_ADMIN_PASSWORD`; the first administrator is created with the one-off `admin` container command from the deployment guide.
+
 Frontend обращается к API через same-origin Next.js rewrite `/api/*`, поэтому cookie не требует небезопасного cross-origin режима. Прямой API CORS разрешает credentials только для конкретного `WEB_ORIGIN`.
 
 ## Структура

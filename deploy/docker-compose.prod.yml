@@ -1,0 +1,235 @@
+name: opora
+
+x-api-environment: &api-environment
+  APP_ENV: production
+  HTTP_ADDRESS: :8080
+  HTTP_READ_TIMEOUT: 15s
+  HTTP_READ_HEADER_TIMEOUT: 5s
+  HTTP_WRITE_TIMEOUT: 60s
+  HTTP_IDLE_TIMEOUT: 60s
+  HTTP_SHUTDOWN_TIMEOUT: 20s
+  DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+  WEB_ORIGIN: https://${APP_DOMAIN}
+  SESSION_COOKIE_NAME: opora_session
+  CSRF_COOKIE_NAME: opora_csrf
+  SESSION_TTL: 168h
+  COOKIE_SECURE: "true"
+  MAX_UPLOAD_BYTES: "26214400"
+  S3_ENDPOINT: http://minio:9000
+  S3_REGION: ${S3_REGION}
+  S3_BUCKET: ${S3_BUCKET}
+  S3_ACCESS_KEY: ${MINIO_ROOT_USER}
+  S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+  S3_USE_TLS: "false"
+  CLAMAV_ADDRESS: clamav:3310
+  ONLYOFFICE_PUBLIC_URL: https://${OFFICE_DOMAIN}
+  ONLYOFFICE_INTERNAL_URL: http://onlyoffice
+  ONLYOFFICE_INTERNAL_API_URL: http://api:8080
+  ONLYOFFICE_CALLBACK_ORIGIN: http://onlyoffice
+  ONLYOFFICE_JWT_SECRET: ${ONLYOFFICE_JWT_SECRET}
+
+services:
+  postgres:
+    image: postgres:18.6-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+    networks: [opora]
+
+  minio:
+    image: minio/minio:RELEASE.2025-07-23T15-54-02Z
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    restart: unless-stopped
+    networks: [opora]
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-07-21T05-28-08Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - >-
+        mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}";
+        mc mb --ignore-existing "local/$${S3_BUCKET}";
+        mc anonymous set none "local/$${S3_BUCKET}"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      S3_BUCKET: ${S3_BUCKET}
+    restart: "no"
+    networks: [opora]
+
+  clamav:
+    image: clamav/clamav:1.4.3
+    volumes:
+      - clamav-data:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/clamdcheck.sh"]
+      interval: 15s
+      timeout: 10s
+      retries: 60
+      start_period: 180s
+    restart: unless-stopped
+    networks: [opora]
+
+  onlyoffice:
+    image: onlyoffice/documentserver:9.4.0.1
+    environment:
+      JWT_ENABLED: "true"
+      JWT_SECRET: ${ONLYOFFICE_JWT_SECRET}
+      JWT_HEADER: AuthorizationJwt
+      ALLOW_PRIVATE_IP_ADDRESS: "true"
+    shm_size: 512mb
+    volumes:
+      - onlyoffice-data:/var/www/onlyoffice/Data
+      - onlyoffice-logs:/var/log/onlyoffice
+      - onlyoffice-lib:/var/lib/onlyoffice
+      - onlyoffice-db:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/healthcheck"]
+      interval: 20s
+      timeout: 10s
+      retries: 45
+      start_period: 120s
+    restart: unless-stopped
+    networks: [opora]
+
+  api:
+    image: opora-api:production
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+      args:
+        VERSION: ${OPORA_VERSION:-production}
+    environment: *api-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      clamav:
+        condition: service_healthy
+      onlyoffice:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+    networks: [opora]
+
+  web:
+    image: opora-web:production
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+      args:
+        API_INTERNAL_URL: http://api:8080
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+      API_INTERNAL_URL: http://api:8080
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:3000/login"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+    networks: [opora]
+
+  caddy:
+    image: caddy:2.10.2-alpine
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+      OFFICE_DOMAIN: ${OFFICE_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+      onlyoffice:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [opora]
+
+  migrate:
+    image: opora-api:production
+    profiles: [tools]
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+      args:
+        VERSION: ${OPORA_VERSION:-production}
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      MIGRATIONS_DIR: /app/migrations
+    entrypoint: ["/usr/local/bin/opora-migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [opora]
+
+  admin:
+    image: opora-api:production
+    profiles: [tools]
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+      args:
+        VERSION: ${OPORA_VERSION:-production}
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+    entrypoint: ["/usr/local/bin/opora-admin"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [opora]
+
+volumes:
+  postgres-data:
+  minio-data:
+  clamav-data:
+  onlyoffice-data:
+  onlyoffice-logs:
+  onlyoffice-lib:
+  onlyoffice-db:
+  caddy-data:
+  caddy-config:
+
+networks:
+  opora:
+    driver: bridge

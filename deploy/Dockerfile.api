@@ -1,0 +1,33 @@
+# syntax=docker/dockerfile:1.7
+FROM golang:1.27-alpine AS build
+
+RUN apk add --no-cache ca-certificates git
+WORKDIR /src/apps/api
+
+COPY apps/api/go.mod apps/api/go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+
+COPY apps/api/ ./
+ARG VERSION=development
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build -trimpath \
+    -ldflags="-s -w -X main.version=${VERSION}" -o /out/opora-api ./cmd/api && \
+    CGO_ENABLED=0 GOOS=linux go build -trimpath \
+    -ldflags="-s -w" -o /out/opora-admin ./cmd/admin && \
+    CGO_ENABLED=0 GOOS=linux go build -trimpath \
+    -ldflags="-s -w" -o /out/opora-migrate ./cmd/migrate
+
+FROM alpine:3.22
+RUN apk add --no-cache ca-certificates tzdata && \
+    addgroup -S -g 10001 opora && \
+    adduser -S -D -H -u 10001 -G opora opora
+
+WORKDIR /app
+COPY --from=build /out/opora-api /usr/local/bin/opora-api
+COPY --from=build /out/opora-admin /usr/local/bin/opora-admin
+COPY --from=build /out/opora-migrate /usr/local/bin/opora-migrate
+COPY --from=build /src/apps/api/db/migrations /app/migrations
+
+USER 10001:10001
+EXPOSE 8080
+ENTRYPOINT ["/usr/local/bin/opora-api"]

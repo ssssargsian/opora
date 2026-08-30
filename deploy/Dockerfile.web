@@ -1,0 +1,32 @@
+# syntax=docker/dockerfile:1.7
+FROM node:24.20.0-alpine AS dependencies
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN corepack enable && corepack prepare pnpm@11.24.0 --activate
+WORKDIR /app
+
+COPY pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY apps/web/package.json apps/web/package.json
+RUN --mount=type=cache,id=opora-pnpm,target=/pnpm/store \
+    pnpm install --frozen-lockfile --network-concurrency=4 --fetch-retries=5 --fetch-timeout=120000
+
+FROM dependencies AS build
+COPY apps/web apps/web
+ARG API_INTERNAL_URL=http://api:8080
+ENV API_INTERNAL_URL=$API_INTERNAL_URL
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN pnpm --dir apps/web build
+
+FROM node:24.20.0-alpine AS runtime
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV HOSTNAME=0.0.0.0
+ENV PORT=3000
+WORKDIR /app
+
+COPY --from=build --chown=node:node /app/apps/web/.next/standalone ./
+COPY --from=build --chown=node:node /app/apps/web/.next/static ./apps/web/.next/static
+
+USER node
+EXPOSE 3000
+CMD ["node", "apps/web/server.js"]

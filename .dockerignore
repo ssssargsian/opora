@@ -1,0 +1,13 @@
+.git
+.github
+.env
+.env.*
+!.env.example
+**/node_modules
+**/.next
+**/coverage
+**/*.tsbuildinfo
+apps/api/bin
+apps/api/coverage.out
+backups
+tmp
