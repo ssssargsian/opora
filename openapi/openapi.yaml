@@ -543,6 +543,7 @@ components:
         status: { type: string, enum: [active, invited, blocked] }
         createdAt: { type: string, format: date-time }
         invitationDelivery: { type: string, enum: [sent, failed], description: Present in the create response. }
+        invitationError: { type: string, enum: [smtp_connection_failed, smtp_tls_failed, smtp_authentication_failed, smtp_sender_rejected, smtp_recipient_rejected, smtp_send_failed], description: Safe delivery failure class present when invitationDelivery is failed. }
     StudentGrant:
       type: string
       enum: [view, upload, download, edit]

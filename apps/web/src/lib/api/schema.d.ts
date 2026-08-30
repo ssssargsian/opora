@@ -526,6 +526,11 @@ export interface components {
              * @enum {string}
              */
             invitationDelivery?: "sent" | "failed";
+            /**
+             * @description Safe delivery failure class present when invitationDelivery is failed.
+             * @enum {string}
+             */
+            invitationError?: "smtp_connection_failed" | "smtp_tls_failed" | "smtp_authentication_failed" | "smtp_sender_rejected" | "smtp_recipient_rejected" | "smtp_send_failed";
         };
         /** @enum {string} */
         StudentGrant: "view" | "upload" | "download" | "edit";

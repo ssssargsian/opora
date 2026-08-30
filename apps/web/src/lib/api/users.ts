@@ -22,6 +22,7 @@ export type OrganizationUser = {
   invitationCreatedAt?: string | null;
   invitationAcceptedAt?: string | null;
   invitationDelivery?: "sent" | "failed";
+  invitationError?: "smtp_connection_failed" | "smtp_tls_failed" | "smtp_authentication_failed" | "smtp_sender_rejected" | "smtp_recipient_rejected" | "smtp_send_failed";
 };
 
 export const usersAPI = {

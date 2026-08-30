@@ -183,7 +183,7 @@ func (s *Service) ResendInvitation(ctx context.Context, actor access.Actor, user
 	}
 	if err := s.mailer.SendInvitation(ctx, InvitationMessage{Email: item.Email, DisplayName: item.DisplayName,
 		OrganizationName: organizationName, Token: token, ExpiresAt: expiresAt}); err != nil {
-		return item, ErrInvitationDelivery
+		return item, err
 	}
 	return item, nil
 }

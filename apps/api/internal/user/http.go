@@ -168,12 +168,26 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, ErrUsedInvitation):
 		apierror.Write(w, r, http.StatusConflict, "invitation_used", "Invitation has already been used")
 	case errors.Is(err, ErrInvitationDelivery):
-		apierror.Write(w, r, http.StatusBadGateway, "invitation_delivery_failed", "User was created, but invitation email was not sent")
+		code, message := smtpPublicError(err)
+		apierror.Write(w, r, http.StatusBadGateway, code, message)
 	case errors.Is(err, ErrInvalidInput), errors.Is(err, ErrRoleNotFound):
 		apierror.Write(w, r, http.StatusBadRequest, "invalid_request", "Invalid request")
 	default:
 		apierror.Write(w, r, http.StatusInternalServerError, "internal_error", "Internal server error")
 	}
+}
+
+func smtpPublicError(err error) (string, string) {
+	code := smtpPublicCode(err)
+	messages := map[string]string{
+		string(SMTPConnectionFailed):     "SMTP connection failed",
+		string(SMTPTLSFailed):            "SMTP TLS negotiation failed",
+		string(SMTPAuthenticationFailed): "SMTP authentication failed",
+		string(SMTPSenderRejected):       "SMTP sender was rejected",
+		string(SMTPRecipientRejected):    "SMTP recipient was rejected",
+		string(SMTPSendFailed):           "SMTP mail sending failed",
+	}
+	return code, messages[code]
 }
 
 func requestAudit(r *http.Request) RequestAudit {

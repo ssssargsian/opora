@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"log/slog"
 	"net"
 	"net/mail"
 	"net/smtp"
+	"net/textproto"
 	"net/url"
 	"strconv"
 	"strings"
@@ -29,7 +31,29 @@ type SMTPSettings struct {
 type SMTPInvitationMailer struct {
 	settings SMTPSettings
 	dialer   net.Dialer
+	logger   *slog.Logger
 }
+
+type SMTPFailureKind string
+
+const (
+	SMTPConnectionFailed     SMTPFailureKind = "smtp_connection_failed"
+	SMTPTLSFailed            SMTPFailureKind = "smtp_tls_failed"
+	SMTPAuthenticationFailed SMTPFailureKind = "smtp_authentication_failed"
+	SMTPSenderRejected       SMTPFailureKind = "smtp_sender_rejected"
+	SMTPRecipientRejected    SMTPFailureKind = "smtp_recipient_rejected"
+	SMTPSendFailed           SMTPFailureKind = "smtp_send_failed"
+)
+
+type SMTPDeliveryError struct {
+	Kind     SMTPFailureKind
+	Stage    string
+	Code     int
+	Response string
+}
+
+func (e *SMTPDeliveryError) Error() string { return string(e.Kind) }
+func (e *SMTPDeliveryError) Unwrap() error { return ErrInvitationDelivery }
 
 func NewSMTPInvitationMailer(settings SMTPSettings) (InvitationMailer, error) {
 	if settings.Host == "" {
@@ -46,7 +70,7 @@ func NewSMTPInvitationMailer(settings SMTPSettings) (InvitationMailer, error) {
 	if settings.TLSMode != "starttls" && settings.TLSMode != "tls" {
 		return nil, errors.New("invalid SMTP TLS mode")
 	}
-	return &SMTPInvitationMailer{settings: settings, dialer: net.Dialer{Timeout: 15 * time.Second}}, nil
+	return &SMTPInvitationMailer{settings: settings, dialer: net.Dialer{Timeout: 15 * time.Second}, logger: slog.Default()}, nil
 }
 
 func (m *SMTPInvitationMailer) SendInvitation(ctx context.Context, message InvitationMessage) error {
@@ -75,64 +99,115 @@ func (m *SMTPInvitationMailer) SendInvitation(ctx context.Context, message Invit
 	address := net.JoinHostPort(m.settings.Host, strconv.Itoa(m.settings.Port))
 	client, err := m.connect(ctx, address)
 	if err != nil {
-		return ErrInvitationDelivery
+		return err
 	}
 	defer func() { _ = client.Close() }()
 	if m.settings.Username != "" {
 		if err = client.Auth(smtp.PlainAuth("", m.settings.Username, m.settings.Password, m.settings.Host)); err != nil {
-			return ErrInvitationDelivery
+			return m.failure(ctx, SMTPAuthenticationFailed, "auth", err)
 		}
+		m.success(ctx, "auth")
 	}
 	// #nosec G707 -- sender.Address is validated by net/mail and exact-match checked above.
 	if err = client.Mail(sender.Address); err != nil {
-		return ErrInvitationDelivery
+		return m.failure(ctx, SMTPSenderRejected, "send", err)
 	}
 	if err = client.Rcpt(message.Email); err != nil {
-		return ErrInvitationDelivery
+		return m.failure(ctx, SMTPRecipientRejected, "send", err)
 	}
 	writer, err := client.Data()
 	if err != nil {
-		return ErrInvitationDelivery
+		return m.failure(ctx, SMTPSendFailed, "send", err)
 	}
 	if _, err = writer.Write([]byte(raw)); err != nil {
 		_ = writer.Close()
-		return ErrInvitationDelivery
+		return m.failure(ctx, SMTPSendFailed, "send", err)
 	}
 	if err = writer.Close(); err != nil {
-		return ErrInvitationDelivery
+		return m.failure(ctx, SMTPSendFailed, "send", err)
 	}
-	return client.Quit()
+	if err = client.Quit(); err != nil {
+		return m.failure(ctx, SMTPSendFailed, "send", err)
+	}
+	m.success(ctx, "send")
+	return nil
 }
 
 func (m *SMTPInvitationMailer) connect(ctx context.Context, address string) (*smtp.Client, error) {
 	tlsConfig := &tls.Config{ServerName: m.settings.Host, MinVersion: tls.VersionTLS12}
-	var connection net.Conn
-	var err error
-	if m.settings.TLSMode == "tls" {
-		tlsDialer := tls.Dialer{NetDialer: &m.dialer, Config: tlsConfig}
-		connection, err = tlsDialer.DialContext(ctx, "tcp", address)
-	} else {
-		connection, err = m.dialer.DialContext(ctx, "tcp", address)
-	}
+	connection, err := m.dialer.DialContext(ctx, "tcp", address)
 	if err != nil {
-		return nil, err
+		return nil, m.failure(ctx, SMTPConnectionFailed, "connect", err)
+	}
+	if err = connection.SetDeadline(time.Now().Add(30 * time.Second)); err != nil {
+		_ = connection.Close()
+		return nil, m.failure(ctx, SMTPConnectionFailed, "connect", err)
+	}
+	m.success(ctx, "connect")
+	if m.settings.TLSMode == "tls" {
+		tlsConnection := tls.Client(connection, tlsConfig)
+		if err = tlsConnection.HandshakeContext(ctx); err != nil {
+			_ = connection.Close()
+			return nil, m.failure(ctx, SMTPTLSFailed, "tls", err)
+		}
+		connection = tlsConnection
+		m.success(ctx, "tls")
 	}
 	client, err := smtp.NewClient(connection, m.settings.Host)
 	if err != nil {
 		_ = connection.Close()
-		return nil, err
+		return nil, m.failure(ctx, SMTPConnectionFailed, "connect", err)
 	}
 	if m.settings.TLSMode == "starttls" {
 		if ok, _ := client.Extension("STARTTLS"); !ok {
 			_ = client.Close()
-			return nil, errors.New("SMTP server does not support STARTTLS")
+			return nil, m.failure(ctx, SMTPTLSFailed, "tls", errors.New("SMTP server does not support STARTTLS"))
 		}
 		if err = client.StartTLS(tlsConfig); err != nil {
 			_ = client.Close()
-			return nil, err
+			return nil, m.failure(ctx, SMTPTLSFailed, "tls", err)
 		}
+		m.success(ctx, "tls")
 	}
 	return client, nil
+}
+
+func (m *SMTPInvitationMailer) success(ctx context.Context, stage string) {
+	m.logger.InfoContext(ctx, "SMTP stage completed", "smtp_stage", stage, "smtp_host", m.settings.Host, "smtp_port", m.settings.Port)
+}
+
+func (m *SMTPInvitationMailer) failure(ctx context.Context, kind SMTPFailureKind, stage string, err error) error {
+	code, response := smtpResponse(err)
+	m.logger.WarnContext(ctx, "SMTP stage failed", "smtp_stage", stage, "smtp_host", m.settings.Host, "smtp_port", m.settings.Port,
+		"error_class", string(kind), "smtp_code", code, "smtp_response", response)
+	return &SMTPDeliveryError{Kind: kind, Stage: stage, Code: code, Response: response}
+}
+
+func smtpResponse(err error) (int, string) {
+	var protocolError *textproto.Error
+	if errors.As(err, &protocolError) {
+		return protocolError.Code, safeSMTPMessage(protocolError.Msg)
+	}
+	return 0, safeSMTPMessage(err.Error())
+}
+
+func safeSMTPMessage(value string) string {
+	fields := strings.Fields(strings.Map(func(r rune) rune {
+		if r < 32 || r == 127 {
+			return ' '
+		}
+		return r
+	}, value))
+	for index, field := range fields {
+		if strings.Contains(field, "@") {
+			fields[index] = "[address]"
+		}
+	}
+	result := strings.Join(fields, " ")
+	if len(result) > 240 {
+		result = result[:240]
+	}
+	return result
 }
 
 func invitationEmailHTML(message InvitationMessage, invitationURL string) string {

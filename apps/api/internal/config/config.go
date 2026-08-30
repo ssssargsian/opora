@@ -152,7 +152,7 @@ func Load() (Config, error) {
 	if cfg.Environment == "production" && !cfg.Auth.CookieSecure {
 		return Config{}, errors.New("COOKIE_SECURE must be true in production")
 	}
-	if cfg.SMTP.Host != "" && (cfg.SMTP.Port <= 0 || cfg.SMTP.FromEmail == "" || cfg.SMTP.AppPublicURL == "" ||
+	if cfg.SMTP.Host != "" && (cfg.SMTP.Port <= 0 || cfg.SMTP.Username == "" || cfg.SMTP.Password == "" || cfg.SMTP.FromEmail == "" || cfg.SMTP.AppPublicURL == "" ||
 		(cfg.SMTP.TLSMode != "starttls" && cfg.SMTP.TLSMode != "tls")) {
 		return Config{}, errors.New("SMTP configuration is incomplete")
 	}

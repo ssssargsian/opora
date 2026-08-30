@@ -8,9 +8,18 @@ import { Button } from "@/components/ui/button";
 import { useCurrentUser } from "@/features/auth/auth-boundary";
 import { CreateUserDialog } from "@/features/users/create-user-dialog";
 import { EditUserDialog } from "@/features/users/edit-user-dialog";
+import { APIError } from "@/lib/api/client";
 import { usersAPI, type OrganizationUser } from "@/lib/api/users";
 
 const statusLabel = { active: "Приглашение принято", invited: "Приглашение не принято", blocked: "Заблокирован" } as const;
+const smtpErrors: Record<string, string> = {
+  smtp_connection_failed: "Не удалось подключиться к почтовому серверу",
+  smtp_tls_failed: "Не удалось установить защищённое SMTP-соединение",
+  smtp_authentication_failed: "Почтовый сервер отклонил SMTP-авторизацию",
+  smtp_sender_rejected: "Почтовый сервер отклонил адрес отправителя",
+  smtp_recipient_rejected: "Почтовый сервер отклонил адрес получателя",
+  smtp_send_failed: "Почтовый сервер не принял письмо",
+};
 
 function invitationDate(user: OrganizationUser) {
   const value = user.status === "active" ? user.invitationAcceptedAt : user.invitationCreatedAt ?? user.createdAt;
@@ -30,10 +39,10 @@ export default function UsersPage() {
   const canManage = user.permissions.includes("users.manage");
   const created = (createdUser: OrganizationUser) => {
     setDialogOpen(false);
-    setToast(createdUser.invitationDelivery === "failed" ? "Учётная запись создана, но SMTP не настроен: письмо не отправлено" : "Пользователь создан, приглашение отправлено");
+    setToast(createdUser.invitationDelivery === "failed" ? smtpErrors[createdUser.invitationError ?? ""] ?? "Учётная запись создана, но приглашение не отправлено" : "Пользователь создан, приглашение отправлено");
     void queryClient.invalidateQueries({ queryKey: ["users"] });
   };
-  const resend = useMutation({ mutationFn: usersAPI.resendInvitation, onSuccess: () => { setToast("Новое приглашение отправлено"); void queryClient.invalidateQueries({ queryKey: ["users"] }); }, onError: () => setToast("Не удалось отправить приглашение. Проверьте SMTP") });
+  const resend = useMutation({ mutationFn: usersAPI.resendInvitation, onSuccess: () => { setToast("Новое приглашение отправлено"); void queryClient.invalidateQueries({ queryKey: ["users"] }); }, onError: (error) => setToast(error instanceof APIError ? smtpErrors[error.code] ?? "Не удалось отправить приглашение" : "Не удалось отправить приглашение") });
   return (
     <>
       <section>

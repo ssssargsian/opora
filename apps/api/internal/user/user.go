@@ -46,6 +46,7 @@ type User struct {
 	InvitationCreatedAt  *time.Time `json:"invitationCreatedAt,omitempty"`
 	InvitationAcceptedAt *time.Time `json:"invitationAcceptedAt,omitempty"`
 	InvitationDelivery   string     `json:"invitationDelivery,omitempty"`
+	InvitationError      string     `json:"invitationError,omitempty"`
 }
 
 type CreateInput struct {
@@ -300,10 +301,19 @@ func (s *Service) Create(ctx context.Context, actor access.Actor, input CreateIn
 	if err := s.mailer.SendInvitation(ctx, InvitationMessage{Email: created.Email, DisplayName: created.DisplayName,
 		OrganizationName: organizationName, Token: token, ExpiresAt: expiresAt}); err != nil {
 		created.InvitationDelivery = "failed"
-		return created, ErrInvitationDelivery
+		created.InvitationError = smtpPublicCode(err)
+		return created, err
 	}
 	created.InvitationDelivery = "sent"
 	return created, nil
+}
+
+func smtpPublicCode(err error) string {
+	var delivery *SMTPDeliveryError
+	if errors.As(err, &delivery) {
+		return string(delivery.Kind)
+	}
+	return string(SMTPSendFailed)
 }
 
 func (s *Service) Update(ctx context.Context, actor access.Actor, userID uuid.UUID, input CreateInput) (User, error) {
