@@ -45,7 +45,7 @@ EOF
   exit 1
 fi
 
-ssh_port="$(sshd -T 2>/dev/null | awk '$1 == "port" { print $2; exit }')"
+ssh_port="$(sshd -T 2>/dev/null | awk '$1 == "port" && !found { print $2; found=1 }')"
 ssh_port="${ssh_port:-22}"
 ufw default deny incoming
 ufw default allow outgoing
