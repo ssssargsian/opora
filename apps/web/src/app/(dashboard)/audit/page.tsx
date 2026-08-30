@@ -18,6 +18,7 @@ const actionLabels: Record<string, string> = {
   "permission.revoke": "Отзыв доступа",
   "user.invite": "Создание пользователя",
   "user.role_change": "Изменение роли",
+  "user.update": "Изменение специалиста",
 };
 
 const resourceLabels: Record<string, string> = {

@@ -20,6 +20,7 @@ var (
 	ErrConflict           = errors.New("user already belongs to organization")
 	ErrInvalidInput       = errors.New("invalid user input")
 	ErrRoleNotFound       = errors.New("role not found")
+	ErrNotFound           = errors.New("user not found")
 	ErrInvitationDelivery = errors.New("invitation email could not be delivered")
 )
 
@@ -31,18 +32,20 @@ type Role struct {
 }
 
 type User struct {
-	ID                 uuid.UUID `json:"id"`
-	RoleID             uuid.UUID `json:"roleId"`
-	DisplayName        string    `json:"displayName"`
-	LastName           string    `json:"lastName"`
-	FirstName          string    `json:"firstName"`
-	MiddleName         *string   `json:"middleName"`
-	Email              string    `json:"email"`
-	RoleKey            string    `json:"roleKey"`
-	RoleName           string    `json:"roleName"`
-	Status             string    `json:"status"`
-	CreatedAt          time.Time `json:"createdAt"`
-	InvitationDelivery string    `json:"invitationDelivery,omitempty"`
+	ID                   uuid.UUID  `json:"id"`
+	RoleID               uuid.UUID  `json:"roleId"`
+	DisplayName          string     `json:"displayName"`
+	LastName             string     `json:"lastName"`
+	FirstName            string     `json:"firstName"`
+	MiddleName           *string    `json:"middleName"`
+	Email                string     `json:"email"`
+	RoleKey              string     `json:"roleKey"`
+	RoleName             string     `json:"roleName"`
+	Status               string     `json:"status"`
+	CreatedAt            time.Time  `json:"createdAt"`
+	InvitationCreatedAt  *time.Time `json:"invitationCreatedAt,omitempty"`
+	InvitationAcceptedAt *time.Time `json:"invitationAcceptedAt,omitempty"`
+	InvitationDelivery   string     `json:"invitationDelivery,omitempty"`
 }
 
 type CreateInput struct {
@@ -79,8 +82,10 @@ func (r *Repository) Roles(ctx context.Context, organizationID uuid.UUID) ([]Rol
 func (r *Repository) List(ctx context.Context, organizationID uuid.UUID) ([]User, error) {
 	rows, err := r.pool.Query(ctx, `SELECT u.id,u.display_name,COALESCE(u.last_name,''),COALESCE(u.first_name,''),u.middle_name,u.email,r.id,r.role_key,r.name,
 		CASE WHEN u.password_hash IS NULL THEN 'invited'
-		     WHEN NOT u.is_active OR NOT m.is_active THEN 'blocked' ELSE 'active' END,m.created_at
+		     WHEN NOT u.is_active OR NOT m.is_active THEN 'blocked' ELSE 'active' END,m.created_at,i.created_at,i.accepted_at
 		FROM memberships m JOIN users u ON u.id=m.user_id JOIN roles r ON r.id=m.role_id
+		LEFT JOIN LATERAL (SELECT created_at,accepted_at FROM user_invitations
+			WHERE organization_id=m.organization_id AND user_id=m.user_id ORDER BY created_at DESC LIMIT 1) i ON true
 		WHERE m.organization_id=$1 ORDER BY u.display_name,u.id`, organizationID)
 	if err != nil {
 		return nil, err
@@ -89,7 +94,7 @@ func (r *Repository) List(ctx context.Context, organizationID uuid.UUID) ([]User
 	result := make([]User, 0)
 	for rows.Next() {
 		var item User
-		if err := rows.Scan(&item.ID, &item.DisplayName, &item.LastName, &item.FirstName, &item.MiddleName, &item.Email, &item.RoleID, &item.RoleKey, &item.RoleName, &item.Status, &item.CreatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.DisplayName, &item.LastName, &item.FirstName, &item.MiddleName, &item.Email, &item.RoleID, &item.RoleKey, &item.RoleName, &item.Status, &item.CreatedAt, &item.InvitationCreatedAt, &item.InvitationAcceptedAt); err != nil {
 			return nil, err
 		}
 		result = append(result, item)
@@ -172,11 +177,64 @@ func (r *Repository) Get(ctx context.Context, organizationID, userID uuid.UUID) 
 	var item User
 	err := r.pool.QueryRow(ctx, `SELECT u.id,u.display_name,COALESCE(u.last_name,''),COALESCE(u.first_name,''),u.middle_name,u.email,r.id,r.role_key,r.name,
 		CASE WHEN u.password_hash IS NULL THEN 'invited'
-		     WHEN NOT u.is_active OR NOT m.is_active THEN 'blocked' ELSE 'active' END,m.created_at
+		     WHEN NOT u.is_active OR NOT m.is_active THEN 'blocked' ELSE 'active' END,m.created_at,i.created_at,i.accepted_at
 		FROM memberships m JOIN users u ON u.id=m.user_id JOIN roles r ON r.id=m.role_id
+		LEFT JOIN LATERAL (SELECT created_at,accepted_at FROM user_invitations
+			WHERE organization_id=m.organization_id AND user_id=m.user_id ORDER BY created_at DESC LIMIT 1) i ON true
 		WHERE m.organization_id=$1 AND m.user_id=$2`, organizationID, userID).Scan(
-		&item.ID, &item.DisplayName, &item.LastName, &item.FirstName, &item.MiddleName, &item.Email, &item.RoleID, &item.RoleKey, &item.RoleName, &item.Status, &item.CreatedAt)
+		&item.ID, &item.DisplayName, &item.LastName, &item.FirstName, &item.MiddleName, &item.Email, &item.RoleID, &item.RoleKey, &item.RoleName, &item.Status, &item.CreatedAt, &item.InvitationCreatedAt, &item.InvitationAcceptedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return User{}, ErrNotFound
+	}
 	return item, err
+}
+
+func (r *Repository) Update(ctx context.Context, organizationID, actorID, userID uuid.UUID, input CreateInput) (User, error) {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return User{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var previousRoleID uuid.UUID
+	if err = tx.QueryRow(ctx, `SELECT role_id FROM memberships WHERE organization_id=$1 AND user_id=$2 FOR UPDATE`, organizationID, userID).Scan(&previousRoleID); errors.Is(err, pgx.ErrNoRows) {
+		return User{}, ErrNotFound
+	} else if err != nil {
+		return User{}, err
+	}
+	var roleID uuid.UUID
+	var allStudents bool
+	if err = tx.QueryRow(ctx, `SELECT id,default_all_students FROM roles WHERE organization_id=$1 AND role_key=$2`, organizationID, input.RoleKey).Scan(&roleID, &allStudents); errors.Is(err, pgx.ErrNoRows) {
+		return User{}, ErrRoleNotFound
+	} else if err != nil {
+		return User{}, err
+	}
+	displayName := joinName(input.LastName, input.FirstName, input.MiddleName)
+	if _, err = tx.Exec(ctx, `UPDATE users SET email=$1,last_name=$2,first_name=$3,middle_name=$4,display_name=$5,updated_at=now() WHERE id=$6`,
+		input.Email, input.LastName, input.FirstName, input.MiddleName, displayName, userID); isUniqueViolation(err) {
+		return User{}, ErrEmailConflict
+	} else if err != nil {
+		return User{}, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE memberships SET role_id=$1,all_students=$2,updated_at=now() WHERE organization_id=$3 AND user_id=$4`, roleID, allStudents, organizationID, userID); err != nil {
+		return User{}, err
+	}
+	action := "user.update"
+	if previousRoleID != roleID {
+		action = "user.role_change"
+	}
+	eventID, err := uuid.NewV7()
+	if err != nil {
+		return User{}, err
+	}
+	metadata, _ := json.Marshal(map[string]any{"roleKey": input.RoleKey})
+	if _, err = tx.Exec(ctx, `INSERT INTO audit_events(id,organization_id,actor_user_id,action,resource_type,resource_id,metadata)
+		VALUES($1,$2,$3,$4,'user',$5,$6)`, eventID, organizationID, actorID, action, userID, metadata); err != nil {
+		return User{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return User{}, err
+	}
+	return r.Get(ctx, organizationID, userID)
 }
 
 type Service struct {
@@ -219,19 +277,7 @@ func (s *Service) Create(ctx context.Context, actor access.Actor, input CreateIn
 	if err := s.requireAny(ctx, actor, access.UsersCreate, access.UsersInvite, access.UsersManage); err != nil {
 		return User{}, err
 	}
-	input.LastName = strings.TrimSpace(input.LastName)
-	input.FirstName = strings.TrimSpace(input.FirstName)
-	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
-	input.RoleKey = strings.TrimSpace(input.RoleKey)
-	if input.MiddleName != nil && len([]rune(strings.TrimSpace(*input.MiddleName))) > 100 {
-		return User{}, ErrInvalidInput
-	}
-	input.MiddleName = cleanOptional(input.MiddleName, 100)
-	if !validName(input.LastName) || !validName(input.FirstName) || input.RoleKey == "" {
-		return User{}, ErrInvalidInput
-	}
-	address, err := mail.ParseAddress(input.Email)
-	if err != nil || address.Address != input.Email || len(input.Email) > 320 {
+	if err := normalizeUserInput(&input); err != nil {
 		return User{}, ErrInvalidInput
 	}
 	invitationID, err := uuid.NewV7()
@@ -258,6 +304,35 @@ func (s *Service) Create(ctx context.Context, actor access.Actor, input CreateIn
 	}
 	created.InvitationDelivery = "sent"
 	return created, nil
+}
+
+func (s *Service) Update(ctx context.Context, actor access.Actor, userID uuid.UUID, input CreateInput) (User, error) {
+	if err := s.authorization.Can(ctx, actor, access.UsersManage, access.Resource{OrganizationID: actor.OrganizationID}); err != nil {
+		return User{}, err
+	}
+	if err := normalizeUserInput(&input); err != nil {
+		return User{}, ErrInvalidInput
+	}
+	return s.repo.Update(ctx, actor.OrganizationID, actor.UserID, userID, input)
+}
+
+func normalizeUserInput(input *CreateInput) error {
+	input.LastName = strings.TrimSpace(input.LastName)
+	input.FirstName = strings.TrimSpace(input.FirstName)
+	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
+	input.RoleKey = strings.TrimSpace(input.RoleKey)
+	if input.MiddleName != nil && len([]rune(strings.TrimSpace(*input.MiddleName))) > 100 {
+		return ErrInvalidInput
+	}
+	input.MiddleName = cleanOptional(input.MiddleName, 100)
+	if !validName(input.LastName) || !validName(input.FirstName) || input.RoleKey == "" {
+		return ErrInvalidInput
+	}
+	address, err := mail.ParseAddress(input.Email)
+	if err != nil || address.Address != input.Email || len(input.Email) > 320 {
+		return ErrInvalidInput
+	}
+	return nil
 }
 
 func (s *Service) requireAny(ctx context.Context, actor access.Actor, permissions ...access.Permission) error {

@@ -200,6 +200,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/users/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: components["parameters"]["UserID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["updateUser"];
+        trace?: never;
+    };
     "/api/v1/organization": {
         parameters: {
             query?: never;
@@ -464,6 +482,10 @@ export interface components {
             documentCount: number;
             /** Format: date-time */
             createdAt: string;
+            /** Format: date-time */
+            invitationCreatedAt?: string | null;
+            /** Format: date-time */
+            invitationAcceptedAt?: string | null;
             /** Format: date-time */
             updatedAt: string;
         };
@@ -958,6 +980,35 @@ export interface operations {
             };
             403: components["responses"]["Error"];
             502: components["responses"]["Error"];
+        };
+    };
+    updateUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: components["parameters"]["UserID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateUser"];
+            };
+        };
+        responses: {
+            /** @description Tenant-scoped user profile and role updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizationUser"];
+                };
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
         };
     };
     updateOrganization: {

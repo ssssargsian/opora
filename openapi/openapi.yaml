@@ -198,6 +198,22 @@ paths:
         "200": { description: Previous pending invitation revoked and a new email sent. }
         "403": { $ref: "#/components/responses/Error" }
         "502": { $ref: "#/components/responses/Error" }
+  /api/v1/users/{userId}:
+    parameters: [{ $ref: "#/components/parameters/UserID" }]
+    patch:
+      operationId: updateUser
+      tags: [Users]
+      security: [{ sessionCookie: [], csrfHeader: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/CreateUser" } } }
+      responses:
+        "200":
+          description: Tenant-scoped user profile and role updated.
+          content: { application/json: { schema: { $ref: "#/components/schemas/OrganizationUser" } } }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
   /api/v1/organization:
     patch:
       operationId: updateOrganization
@@ -490,6 +506,8 @@ components:
         className: { type: [string, "null"] }
         documentCount: { type: integer, format: int64 }
         createdAt: { type: string, format: date-time }
+        invitationCreatedAt: { type: [string, "null"], format: date-time }
+        invitationAcceptedAt: { type: [string, "null"], format: date-time }
         updatedAt: { type: string, format: date-time }
     Role:
       type: object

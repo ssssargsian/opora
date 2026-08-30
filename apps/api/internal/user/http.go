@@ -62,6 +62,28 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, created)
 }
 
+func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
+	userID, err := uuid.Parse(chi.URLParam(r, "userId"))
+	if err != nil {
+		apierror.Write(w, r, http.StatusBadRequest, "invalid_id", "Invalid user ID")
+		return
+	}
+	var input CreateInput
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 32*1024))
+	decoder.DisallowUnknownFields()
+	if err = decoder.Decode(&input); err != nil {
+		apierror.Write(w, r, http.StatusBadRequest, "invalid_request", "Invalid request")
+		return
+	}
+	principal, _ := auth.PrincipalFromContext(r.Context())
+	updated, err := h.service.Update(r.Context(), principal.Actor, userID, input)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
 func (h *Handler) ResendInvitation(w http.ResponseWriter, r *http.Request) {
 	userID, err := uuid.Parse(chi.URLParam(r, "userId"))
 	if err != nil {
@@ -135,6 +157,8 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 		apierror.Write(w, r, http.StatusConflict, "user_exists", "User already exists")
 	case errors.Is(err, ErrEmailConflict):
 		apierror.Write(w, r, http.StatusConflict, "email_exists", "Email already exists")
+	case errors.Is(err, ErrNotFound):
+		apierror.Write(w, r, http.StatusNotFound, "not_found", "Resource not found")
 	case errors.Is(err, ErrWrongPassword):
 		apierror.Write(w, r, http.StatusUnauthorized, "current_password_invalid", "Current password is invalid")
 	case errors.Is(err, ErrInvalidInvitation):

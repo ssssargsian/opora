@@ -97,3 +97,17 @@ SMTP_TLS_MODE=starttls
 ```
 
 Use `SMTP_TLS_MODE=tls` for implicit TLS (usually port 465). Passwords and invitation tokens must never be committed or logged. Without `SMTP_HOST`, account creation remains available but reports that delivery failed; an administrator can resend after SMTP is configured.
+
+For a verified Yandex mailbox, use implicit TLS without committing the mailbox credentials:
+
+```dotenv
+SMTP_HOST=smtp.yandex.ru
+SMTP_PORT=465
+SMTP_USERNAME=verified-mailbox@example.ru
+SMTP_PASSWORD=application-password
+SMTP_FROM_EMAIL=verified-mailbox@example.ru
+SMTP_FROM_NAME=Опора
+SMTP_TLS_MODE=tls
+```
+
+Keep `.env.production` mode `600` after editing and recreate only the API container (`docker compose ... up -d --no-deps --force-recreate api`).

@@ -66,6 +66,9 @@ func TestCreateUserIsTenantScopedAndCanAcceptInvitation(t *testing.T) {
 	if created.Status != "invited" || mailer.message.Token == "" {
 		t.Fatalf("unexpected created account: %#v", created)
 	}
+	if created.InvitationCreatedAt == nil || created.InvitationAcceptedAt != nil {
+		t.Fatalf("unexpected invitation status timestamps: %#v", created)
+	}
 	var storedHash []byte
 	if err = pool.QueryRow(ctx, `SELECT token_hash FROM user_invitations WHERE organization_id=$1 AND user_id=$2`, orgA, created.ID).Scan(&storedHash); err != nil {
 		t.Fatal(err)
@@ -124,6 +127,25 @@ func TestCreateUserIsTenantScopedAndCanAcceptInvitation(t *testing.T) {
 	}
 	if _, err = service.AcceptInvitation(ctx, AcceptInvitationInput{Token: expiredToken, Password: password}); !errors.Is(err, ErrExpiredInvitation) {
 		t.Fatalf("expired invitation error=%v", err)
+	}
+	update := CreateInput{LastName: "Сидорова", FirstName: "Семёна", Email: "expired.updated@test.local", RoleKey: "manager"}
+	withoutPermission := actor
+	withoutPermission.Permissions = map[access.Permission]struct{}{}
+	if _, err = service.Update(ctx, withoutPermission, expired.ID, update); !errors.Is(err, access.ErrPermissionDenied) {
+		t.Fatalf("update without users.manage error=%v", err)
+	}
+	otherTenantActor := actor
+	otherTenantActor.OrganizationID = orgB
+	if _, err = service.Update(ctx, otherTenantActor, expired.ID, update); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("cross-tenant update error=%v", err)
+	}
+	updatedUser, err := service.Update(ctx, actor, expired.ID, update)
+	if err != nil || updatedUser.Email != update.Email || updatedUser.RoleKey != update.RoleKey || updatedUser.Status != "invited" {
+		t.Fatalf("Update()=%#v,%v", updatedUser, err)
+	}
+	var allStudents bool
+	if err = pool.QueryRow(ctx, `SELECT all_students FROM memberships WHERE organization_id=$1 AND user_id=$2`, orgA, expired.ID).Scan(&allStudents); err != nil || !allStudents {
+		t.Fatalf("updated role scope all_students=%v,error=%v", allStudents, err)
 	}
 	otherUsers, err := NewRepository(pool).List(ctx, orgB)
 	if err != nil {

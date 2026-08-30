@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Settings2, X } from "lucide-react";
+import { Check, Settings2, ShieldCheck, UserRound, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -30,13 +30,16 @@ export function AccessDialog({
   const users = useQuery({ queryKey: ["users"], queryFn: usersAPI.list });
   const [userId, setUserId] = useState(assignments[0]?.userId ?? "");
   const [grants, setGrants] = useState<StudentGrant[]>(assignments[0]?.grants ?? ["view"]);
-  const selectedAssignment = assignments.find((item) => item.userId === userId);
+  const activeUsers = users.data?.filter((item) => item.status === "active") ?? [];
+  const selectedUserId = userId || activeUsers[0]?.id || "";
+  const selectedUser = activeUsers.find((item) => item.id === selectedUserId);
+  const selectedAssignment = assignments.find((item) => item.userId === selectedUserId);
   const save = useMutation({
-    mutationFn: () => accessAPI.set(studentId, userId, grants),
+    mutationFn: () => accessAPI.set(studentId, selectedUserId, grants),
     onSuccess: () => onSaved(selectedAssignment ? "Разрешения обновлены" : "Специалисту назначен доступ"),
   });
   const revoke = useMutation({
-    mutationFn: () => accessAPI.revoke(studentId, userId),
+    mutationFn: () => accessAPI.revoke(studentId, selectedUserId),
     onSuccess: () => onSaved("Доступ отозван"),
   });
   const pending = save.isPending || revoke.isPending;
@@ -69,11 +72,29 @@ export function AccessDialog({
       <section className="dialog-card access-dialog" role="dialog" aria-modal="true" aria-labelledby="access-dialog-title">
         <header><span className="dialog-icon"><Settings2 size={20} /></span><div><span className="eyebrow">Персональные права</span><h2 id="access-dialog-title">Настроить доступ</h2></div><button type="button" className="icon-button" onClick={onClose} disabled={pending} aria-label="Закрыть"><X size={19} /></button></header>
         <div className="access-form">
-          <label><span>Специалист</span><select autoFocus value={userId} onChange={(event) => chooseUser(event.target.value)} disabled={users.isPending || pending}><option value="">Выберите специалиста</option>{users.data?.map((item) => <option key={item.id} value={item.id}>{item.displayName} · {item.roleName}</option>)}</select></label>
-          <fieldset disabled={!userId || pending}><legend>Разрешения</legend>{grantOptions.map((option) => <label className="permission-option" key={option.code}><input type="checkbox" checked={grants.includes(option.code)} disabled={pending || (option.code === "view" && grants.some((item) => item !== "view"))} onChange={() => toggle(option.code)} /><span><strong>{option.label}</strong><small>{option.description}</small></span></label>)}</fieldset>
+          <div className="access-editor">
+            <section className="specialist-picker" aria-label="Специалисты">
+              <div className="access-section-heading"><UserRound size={16} /><span>Специалисты</span></div>
+              {users.isPending && <div className="access-picker-state"><span className="loading-spinner" />Загружаем…</div>}
+              {activeUsers.map((item) => {
+                const selected = item.id === selectedUserId;
+                const assigned = assignments.some((entry) => entry.userId === item.id);
+                return <button autoFocus={selected} type="button" key={item.id} className="specialist-option" aria-pressed={selected} onClick={() => chooseUser(item.id)} disabled={pending}>
+                  <span className="person-avatar">{item.displayName.split(" ").map((part) => part[0]).slice(0, 2).join("")}</span>
+                  <span><strong>{item.displayName}</strong><small>{item.roleName}</small></span>
+                  {assigned && <span className="assigned-mark" title="Доступ настроен"><Check size={14} /></span>}
+                </button>;
+              })}
+              {!users.isPending && activeUsers.length === 0 && <div className="access-picker-state">Нет активных специалистов</div>}
+            </section>
+            <section className="permission-panel">
+              <div className="access-section-heading"><ShieldCheck size={16} /><span>{selectedUser ? `Права: ${selectedUser.displayName}` : "Разрешения"}</span></div>
+              <fieldset disabled={!selectedUserId || pending}>{grantOptions.map((option) => <label className="permission-option" key={option.code}><input type="checkbox" checked={grants.includes(option.code)} disabled={pending || (option.code === "view" && grants.some((item) => item !== "view"))} onChange={() => toggle(option.code)} /><span><strong>{option.label}</strong><small>{option.description}</small></span></label>)}</fieldset>
+            </section>
+          </div>
           {users.isError && <div className="form-error" role="alert">Не удалось загрузить специалистов</div>}
           {(save.isError || revoke.isError) && <div className="form-error" role="alert">{errorMessage}</div>}
-          <footer>{selectedAssignment && <Button type="button" variant="danger" onClick={() => revoke.mutate()} disabled={pending}>Отозвать доступ</Button>}<span className="footer-spacer" /><Button type="button" variant="ghost" onClick={onClose} disabled={pending}>Отмена</Button><Button type="button" onClick={() => save.mutate()} disabled={!userId || grants.length === 0 || pending}>{save.isPending ? "Сохраняем…" : "Сохранить"}</Button></footer>
+          <footer>{selectedAssignment && <Button type="button" variant="danger" onClick={() => revoke.mutate()} disabled={pending}>Отозвать доступ</Button>}<span className="footer-spacer" /><Button type="button" variant="ghost" onClick={onClose} disabled={pending}>Отмена</Button><Button type="button" onClick={() => save.mutate()} disabled={!selectedUserId || grants.length === 0 || pending}>{save.isPending ? "Сохраняем…" : "Сохранить"}</Button></footer>
         </div>
       </section>
     </div>

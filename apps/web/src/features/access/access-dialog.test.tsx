@@ -15,14 +15,14 @@ vi.mock("@/lib/api/access", () => ({
 
 describe("AccessDialog", () => {
   it("assigns additive student grants to a selected specialist", async () => {
-    listUsers.mockResolvedValue([{ id: "user-1", displayName: "Анна Петрова", roleName: "Психолог" }]);
+    listUsers.mockResolvedValue([{ id: "user-1", displayName: "Анна Петрова", roleName: "Психолог", status: "active" }]);
     setAccess.mockResolvedValue(undefined);
     const onSaved = vi.fn();
     const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
     const assignments = [{ userId: "user-1", displayName: "Анна Петрова", email: "anna@test.local", roleKey: "psychologist", roleName: "Психолог", grants: ["view" as const] }];
     render(<QueryClientProvider client={client}><AccessDialog studentId="student-1" assignments={assignments} onClose={vi.fn()} onSaved={onSaved} /></QueryClientProvider>);
 
-    await screen.findByLabelText("Специалист");
+    await screen.findByRole("button", { name: /Анна Петрова/ });
     await waitFor(() => expect(screen.getByRole("button", { name: "Сохранить" })).toBeEnabled());
     fireEvent.click(screen.getByRole("checkbox", { name: /Скачивание/ }));
     fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));

@@ -95,6 +95,7 @@ func mountApplication(router chi.Router, app Application) {
 			protected.Get("/roles", app.Users.Roles)
 			protected.Get("/users", app.Users.List)
 			protected.With(requireOrigin(app.WebOrigin), app.Auth.RequireCSRF).Post("/users", app.Users.Create)
+			protected.With(requireOrigin(app.WebOrigin), app.Auth.RequireCSRF).Patch("/users/{userId}", app.Users.Update)
 			protected.With(requireOrigin(app.WebOrigin), app.Auth.RequireCSRF).Post("/users/{userId}/invitation", app.Users.ResendInvitation)
 			protected.With(requireOrigin(app.WebOrigin), app.Auth.RequireCSRF).Patch("/organization", app.Organization.Update)
 			protected.Get("/students/{studentId}/access", app.Access.List)
