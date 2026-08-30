@@ -15,6 +15,7 @@ import (
 	"opora.local/api/internal/config"
 	"opora.local/api/internal/devbootstrap"
 	"opora.local/api/internal/document"
+	"opora.local/api/internal/organization"
 	"opora.local/api/internal/platform/database"
 	"opora.local/api/internal/platform/httpserver"
 	"opora.local/api/internal/student"
@@ -57,7 +58,16 @@ func main() {
 	studentService := student.NewService(studentRepository)
 	studentHandler := student.NewHandler(studentService)
 	userRepository := user.NewRepository(pool)
-	userHandler := user.NewHandler(user.NewService(userRepository))
+	invitationMailer, err := user.NewSMTPInvitationMailer(user.SMTPSettings{
+		Host: cfg.SMTP.Host, Port: cfg.SMTP.Port, Username: cfg.SMTP.Username, Password: cfg.SMTP.Password,
+		FromEmail: cfg.SMTP.FromEmail, FromName: cfg.SMTP.FromName, TLSMode: cfg.SMTP.TLSMode, AppPublicURL: cfg.SMTP.AppPublicURL,
+	})
+	if err != nil {
+		logger.Error("SMTP invitation configuration is invalid")
+		os.Exit(1)
+	}
+	userHandler := user.NewHandler(user.NewService(userRepository, user.WithInvitationMailer(invitationMailer)))
+	organizationHandler := organization.NewHandler(organization.NewService(organization.NewRepository(pool)))
 	accessRepository := studentaccess.NewRepository(pool)
 	accessHandler := studentaccess.NewHandler(studentaccess.NewService(accessRepository, studentRepository))
 	auditHandler := audit.NewHandler(audit.NewRepository(pool))
@@ -72,7 +82,7 @@ func main() {
 	documentHandler := document.NewHandler(documentService, onlyOfficeService, cfg.Upload.MaxBytes, logger)
 	server := httpserver.New(cfg.HTTP, logger, pool, httpserver.Application{
 		Auth: authHandler, Students: studentHandler, Documents: documentHandler, Users: userHandler,
-		Access: accessHandler, Audit: auditHandler, WebOrigin: cfg.Auth.AllowedOrigin,
+		Access: accessHandler, Audit: auditHandler, Organization: organizationHandler, WebOrigin: cfg.Auth.AllowedOrigin,
 	})
 	serverErrors := make(chan error, 1)
 	go func() {

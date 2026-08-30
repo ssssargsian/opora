@@ -22,10 +22,20 @@ x-api-environment: &api-environment
   S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
   S3_USE_TLS: "false"
   CLAMAV_ADDRESS: clamav:3310
+  APP_PUBLIC_URL: https://${APP_DOMAIN}
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_USERNAME: ${SMTP_USERNAME:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-}
+  SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Опора}
+  SMTP_TLS_MODE: ${SMTP_TLS_MODE:-starttls}
   ONLYOFFICE_PUBLIC_URL: https://${OFFICE_DOMAIN}
   ONLYOFFICE_INTERNAL_URL: http://onlyoffice
   ONLYOFFICE_INTERNAL_API_URL: http://api:8080
-  ONLYOFFICE_CALLBACK_ORIGIN: http://onlyoffice
+  # Document Server returns save URLs with its browser-facing origin. The API
+  # validates that origin, then rewrites it to ONLYOFFICE_INTERNAL_URL.
+  ONLYOFFICE_CALLBACK_ORIGIN: https://${OFFICE_DOMAIN}
   ONLYOFFICE_JWT_SECRET: ${ONLYOFFICE_JWT_SECRET}
 
 services:

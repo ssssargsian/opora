@@ -81,3 +81,19 @@ Production integration addresses are service names, never `localhost` or `host.d
 - API to ClamAV: `clamav:3310`
 
 The MinIO console is intentionally not public. Use a temporary SSH tunnel only for maintenance, then close it.
+
+## SMTP invitations
+
+Specialist accounts are activated through one-time invitation links. Add the following provider credentials to `.env.production` and run `./deploy/deploy.sh`:
+
+```dotenv
+SMTP_HOST=smtp.example.org
+SMTP_PORT=587
+SMTP_USERNAME=opora@example.org
+SMTP_PASSWORD=provider-secret
+SMTP_FROM_EMAIL=opora@example.org
+SMTP_FROM_NAME=Опора
+SMTP_TLS_MODE=starttls
+```
+
+Use `SMTP_TLS_MODE=tls` for implicit TLS (usually port 465). Passwords and invitation tokens must never be committed or logged. Without `SMTP_HOST`, account creation remains available but reports that delivery failed; an administrator can resend after SMTP is configured.

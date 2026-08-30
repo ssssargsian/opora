@@ -3,7 +3,9 @@ package student
 import (
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -42,6 +44,14 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
+	h.writeStudent(w, r, false)
+}
+
+func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
+	h.writeStudent(w, r, true)
+}
+
+func (h *Handler) writeStudent(w http.ResponseWriter, r *http.Request, update bool) {
 	var body struct {
 		LastName   string  `json:"lastName"`
 		FirstName  string  `json:"firstName"`
@@ -65,12 +75,29 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		birth = &parsed
 	}
 	p, _ := auth.PrincipalFromContext(r.Context())
-	result, err := h.service.Create(r.Context(), p.Actor, CreateInput{LastName: body.LastName, FirstName: body.FirstName, MiddleName: body.MiddleName, BirthDate: birth, ClassName: body.ClassName})
+	input := CreateInput{LastName: body.LastName, FirstName: body.FirstName, MiddleName: body.MiddleName, BirthDate: birth, ClassName: body.ClassName}
+	var result Student
+	var err error
+	if update {
+		id, parseErr := uuid.Parse(chi.URLParam(r, "studentId"))
+		if parseErr != nil {
+			apierror.Write(w, r, http.StatusBadRequest, "invalid_id", "Invalid student ID")
+			return
+		}
+		host, _, _ := net.SplitHostPort(r.RemoteAddr)
+		result, err = h.service.Update(r.Context(), p.Actor, id, input, AuditContext{IPAddress: host, UserAgent: strings.TrimSpace(r.UserAgent())})
+	} else {
+		result, err = h.service.Create(r.Context(), p.Actor, input)
+	}
 	if err != nil {
 		writeError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, result)
+	status := http.StatusCreated
+	if update {
+		status = http.StatusOK
+	}
+	writeJSON(w, status, result)
 }
 func writeError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {

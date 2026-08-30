@@ -1,12 +1,13 @@
-import { LockKeyhole, ShieldCheck } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
 
 import { LoginForm } from "@/components/auth/login-form";
+import { Logo } from "@/components/brand/logo";
 
 export default function LoginPage() {
   return (
     <main className="login-page">
       <section className="login-card" aria-labelledby="login-title">
-        <div className="login-brand"><span className="login-lock"><LockKeyhole size={20} /></span><strong>Опора</strong></div>
+        <div className="login-brand"><Logo /></div>
         <h1 id="login-title">Вход в систему</h1>
         <p>Защищённое рабочее пространство школьных специалистов.</p>
         <LoginForm />

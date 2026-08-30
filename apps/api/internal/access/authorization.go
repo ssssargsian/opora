@@ -35,6 +35,8 @@ const (
 	UsersCreate  Permission = "users.create"
 	UsersInvite  Permission = "users.invite"
 	UsersManage  Permission = "users.manage"
+
+	OrganizationUpdate Permission = "organization.update"
 )
 
 // StudentGrant narrows an actor's capabilities to an assigned student.
@@ -101,7 +103,7 @@ func (AuthorizationService) Can(ctx context.Context, actor Actor, action Permiss
 
 func isOrganizationScoped(permission Permission) bool {
 	switch permission {
-	case StudentsList, StudentsCreate, AccessView, AccessManage, AuditView, UsersView, UsersCreate, UsersInvite, UsersManage:
+	case StudentsList, StudentsCreate, AccessView, AccessManage, AuditView, UsersView, UsersCreate, UsersInvite, UsersManage, OrganizationUpdate:
 		return true
 	case StudentsView, StudentsUpdate, DocumentsList, DocumentsView, DocumentsDownload, DocumentsUpload, DocumentsEdit, DocumentsDelete:
 		return false
@@ -120,7 +122,7 @@ func requiredStudentGrant(permission Permission) (StudentGrant, bool) {
 		return StudentEdit, true
 	case DocumentsDownload:
 		return StudentDownload, true
-	case StudentsList, StudentsCreate, DocumentsDelete, AccessView, AccessManage, AuditView, UsersView, UsersCreate, UsersInvite, UsersManage:
+	case StudentsList, StudentsCreate, DocumentsDelete, AccessView, AccessManage, AuditView, UsersView, UsersCreate, UsersInvite, UsersManage, OrganizationUpdate:
 		return "", false
 	default:
 		return "", false

@@ -19,6 +19,7 @@ type Config struct {
 	Storage     Storage
 	OnlyOffice  OnlyOffice
 	ClamAV      ClamAV
+	SMTP        SMTP
 	Dev         Dev
 }
 
@@ -70,6 +71,18 @@ type ClamAV struct {
 	Address string
 }
 
+// SMTP configures invitation delivery. An empty Host disables delivery.
+type SMTP struct {
+	Host         string
+	Port         int
+	Username     string
+	Password     string
+	FromEmail    string
+	FromName     string
+	TLSMode      string
+	AppPublicURL string
+}
+
 // Dev contains explicitly opt-in local bootstrap settings.
 type Dev struct {
 	AdminEmail    string
@@ -114,6 +127,12 @@ func Load() (Config, error) {
 			JWTSecret:      os.Getenv("ONLYOFFICE_JWT_SECRET"),
 		},
 		ClamAV: ClamAV{Address: env("CLAMAV_ADDRESS", "localhost:3310")},
+		SMTP: SMTP{
+			Host: os.Getenv("SMTP_HOST"), Port: intValue("SMTP_PORT", 587), Username: os.Getenv("SMTP_USERNAME"),
+			Password: os.Getenv("SMTP_PASSWORD"), FromEmail: os.Getenv("SMTP_FROM_EMAIL"),
+			FromName: env("SMTP_FROM_NAME", "Опора"), TLSMode: env("SMTP_TLS_MODE", "starttls"),
+			AppPublicURL: env("APP_PUBLIC_URL", "http://localhost:3000"),
+		},
 		Dev: Dev{
 			AdminEmail:    env("DEV_ADMIN_EMAIL", "admin@opora.local"),
 			AdminPassword: os.Getenv("DEV_ADMIN_PASSWORD"),
@@ -132,6 +151,10 @@ func Load() (Config, error) {
 	}
 	if cfg.Environment == "production" && !cfg.Auth.CookieSecure {
 		return Config{}, errors.New("COOKIE_SECURE must be true in production")
+	}
+	if cfg.SMTP.Host != "" && (cfg.SMTP.Port <= 0 || cfg.SMTP.FromEmail == "" || cfg.SMTP.AppPublicURL == "" ||
+		(cfg.SMTP.TLSMode != "starttls" && cfg.SMTP.TLSMode != "tls")) {
+		return Config{}, errors.New("SMTP configuration is incomplete")
 	}
 	return cfg, nil
 }
@@ -173,6 +196,18 @@ func int64Value(name string, fallback int64) int64 {
 		return fallback
 	}
 	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func intValue(name string, fallback int) int {
+	value := os.Getenv(name)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
 	if err != nil {
 		return fallback
 	}

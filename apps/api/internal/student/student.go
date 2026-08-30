@@ -137,6 +137,41 @@ type CreateInput struct {
 	BirthDate             *time.Time
 }
 
+type AuditContext struct {
+	IPAddress string
+	UserAgent string
+}
+
+func (r *Repository) Update(ctx context.Context, actor access.Actor, id uuid.UUID, input CreateInput, audit AuditContext) (Student, error) {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return Student{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	result, err := tx.Exec(ctx, `UPDATE students SET last_name=$1,first_name=$2,middle_name=$3,birth_date=$4,class_name=$5,updated_at=now()
+		WHERE organization_id=$6 AND id=$7`, input.LastName, input.FirstName, input.MiddleName, input.BirthDate, input.ClassName, actor.OrganizationID, id)
+	if err != nil {
+		return Student{}, err
+	}
+	if result.RowsAffected() != 1 {
+		return Student{}, ErrNotFound
+	}
+	eventID, err := uuid.NewV7()
+	if err != nil {
+		return Student{}, err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO audit_events
+		(id,organization_id,actor_user_id,action,resource_type,resource_id,ip_address,user_agent)
+		VALUES($1,$2,$3,'student.update','student',$4,$5,$6)`, eventID, actor.OrganizationID, actor.UserID, id,
+		nullIfEmpty(audit.IPAddress), nullIfEmpty(audit.UserAgent)); err != nil {
+		return Student{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return Student{}, err
+	}
+	return r.Get(ctx, actor.OrganizationID, id)
+}
+
 type Service struct {
 	repo          *Repository
 	authorization access.AuthorizationService
@@ -159,18 +194,42 @@ func (s *Service) Create(ctx context.Context, actor access.Actor, input CreateIn
 	if err := s.authorization.Can(ctx, actor, access.StudentsCreate, access.Resource{OrganizationID: actor.OrganizationID}); err != nil {
 		return Student{}, err
 	}
+	if err := normalizeInput(&input); err != nil {
+		return Student{}, ErrInvalidInput
+	}
+	return s.repo.Create(ctx, actor, input)
+}
+
+func (s *Service) Update(ctx context.Context, actor access.Actor, id uuid.UUID, input CreateInput, audit AuditContext) (Student, error) {
+	if err := s.authorization.Can(ctx, actor, access.StudentsUpdate, access.Resource{OrganizationID: actor.OrganizationID, StudentID: &id}); err != nil {
+		return Student{}, err
+	}
+	if err := normalizeInput(&input); err != nil {
+		return Student{}, err
+	}
+	return s.repo.Update(ctx, actor, id, input, audit)
+}
+
+func normalizeInput(input *CreateInput) error {
 	input.LastName = strings.TrimSpace(input.LastName)
 	input.FirstName = strings.TrimSpace(input.FirstName)
 	if (input.MiddleName != nil && len([]rune(strings.TrimSpace(*input.MiddleName))) > 100) ||
 		(input.ClassName != nil && len([]rune(strings.TrimSpace(*input.ClassName))) > 32) {
-		return Student{}, ErrInvalidInput
+		return ErrInvalidInput
 	}
 	input.MiddleName = cleanOptional(input.MiddleName, 100)
 	input.ClassName = cleanOptional(input.ClassName, 32)
 	if input.LastName == "" || input.FirstName == "" || len([]rune(input.LastName)) > 100 || len([]rune(input.FirstName)) > 100 {
-		return Student{}, ErrInvalidInput
+		return ErrInvalidInput
 	}
-	return s.repo.Create(ctx, actor, input)
+	return nil
+}
+
+func nullIfEmpty(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
 }
 
 func cleanOptional(value *string, max int) *string {

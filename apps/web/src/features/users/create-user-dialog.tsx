@@ -53,7 +53,7 @@ export function CreateUserDialog({ onClose, onCreated }: { onClose: () => void; 
           </div>
           {roles.isError && <div className="form-error" role="alert">Не удалось загрузить роли</div>}
           {create.isError && <div className="form-error" role="alert">{errorMessage}</div>}
-          <p className="form-hint">Email-рассылка пока не подключена. После создания покажем начальный пароль один раз.</p>
+          <p className="form-hint">Специалист получит одноразовую ссылку и самостоятельно задаст пароль. Ссылка действует 48 часов.</p>
           <footer><Button type="button" variant="ghost" onClick={onClose} disabled={create.isPending}>Отмена</Button><Button type="submit" disabled={create.isPending || roles.isPending}>{create.isPending ? "Создаём…" : "Создать пользователя"}</Button></footer>
         </form>
       </section>

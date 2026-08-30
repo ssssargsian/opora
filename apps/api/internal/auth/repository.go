@@ -24,6 +24,8 @@ type LoginAccount struct {
 type Principal struct {
 	Session                              Session
 	Email, DisplayName, OrganizationName string
+	LastName, FirstName                  string
+	MiddleName                           *string
 	Actor                                access.Actor
 	CSRFHash                             [sha256.Size]byte
 }
@@ -67,14 +69,16 @@ func (r *Repository) PrincipalByToken(ctx context.Context, token string, now tim
 	var tokenHash, csrfHash []byte
 	err := r.pool.QueryRow(ctx, `
 		SELECT s.id, s.user_id, s.organization_id, s.expires_at, s.revoked_at,
-		       s.token_hash, s.csrf_token_hash, u.email, u.display_name, o.name, m.is_active, m.all_students
+		       s.token_hash, s.csrf_token_hash, u.email, u.display_name, COALESCE(u.last_name,''),COALESCE(u.first_name,''),u.middle_name,
+		       o.name, m.is_active, m.all_students
 		FROM sessions s
 		JOIN users u ON u.id = s.user_id AND u.is_active
 		JOIN memberships m ON m.organization_id = s.organization_id AND m.user_id = s.user_id
 		JOIN organizations o ON o.id = s.organization_id
 		WHERE s.token_hash = $1`, hash[:]).Scan(
 		&p.Session.ID, &p.Session.UserID, &p.Session.OrganizationID, &p.Session.ExpiresAt, &p.Session.RevokedAt,
-		&tokenHash, &csrfHash, &p.Email, &p.DisplayName, &p.OrganizationName, &p.Actor.Active, &p.Actor.AllStudents)
+		&tokenHash, &csrfHash, &p.Email, &p.DisplayName, &p.LastName, &p.FirstName, &p.MiddleName,
+		&p.OrganizationName, &p.Actor.Active, &p.Actor.AllStudents)
 	if err != nil {
 		return Principal{}, ErrInvalidSession
 	}

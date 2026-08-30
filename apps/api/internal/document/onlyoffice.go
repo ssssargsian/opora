@@ -20,7 +20,11 @@ import (
 	"opora.local/api/internal/config"
 )
 
-var ErrInvalidOnlyOfficeToken = errors.New("invalid ONLYOFFICE token")
+var (
+	ErrInvalidOnlyOfficeToken = errors.New("invalid ONLYOFFICE token")
+	ErrUntrustedDownloadURL   = errors.New("untrusted ONLYOFFICE download URL")
+	ErrOnlyOfficeDownload     = errors.New("ONLYOFFICE download failed")
+)
 
 type OnlyOfficeService struct {
 	documents *Service
@@ -157,7 +161,7 @@ func (s *OnlyOfficeService) VerifyDocumentServerToken(token string) error {
 func (s *OnlyOfficeService) FetchEdited(ctx context.Context, downloadURL string) ([]byte, error) {
 	trustedURL, err := s.trustedDownloadURL(downloadURL)
 	if err != nil {
-		return nil, errors.New("untrusted ONLYOFFICE download URL")
+		return nil, ErrUntrustedDownloadURL
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, trustedURL, nil)
 	if err != nil {
@@ -165,11 +169,11 @@ func (s *OnlyOfficeService) FetchEdited(ctx context.Context, downloadURL string)
 	}
 	response, err := s.client.Do(request)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: request", ErrOnlyOfficeDownload)
 	}
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
-		return nil, errors.New("ONLYOFFICE download failed")
+		return nil, fmt.Errorf("%w: status %d", ErrOnlyOfficeDownload, response.StatusCode)
 	}
 	if response.ContentLength > s.maxBytes {
 		return nil, ErrFileTooLarge
@@ -182,6 +186,15 @@ func (s *OnlyOfficeService) FetchEdited(ctx context.Context, downloadURL string)
 		return nil, ErrFileTooLarge
 	}
 	return data, nil
+}
+
+// DownloadEndpoint returns non-sensitive endpoint metadata for integration diagnostics.
+func (s *OnlyOfficeService) DownloadEndpoint(raw string) (scheme, host string) {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "invalid", "invalid"
+	}
+	return parsed.Scheme, parsed.Host
 }
 
 func (s *OnlyOfficeService) trustedDownloadURL(raw string) (string, error) {

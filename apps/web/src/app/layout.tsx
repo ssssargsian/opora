@@ -6,6 +6,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: { default: "Опора", template: "%s · Опора" },
   description: "Защищённая система сопровождения детей и работы специалистов школы",
+  icons: { icon: "/icon.svg", shortcut: "/icon.svg", apple: "/icon.svg" },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

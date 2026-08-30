@@ -13,6 +13,7 @@ tags:
   - name: Users
   - name: Access
   - name: Audit
+  - name: Organization
 paths:
   /health/live:
     get:
@@ -51,6 +52,18 @@ paths:
         "204": { description: Session revoked and cookies cleared. }
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
+  /api/v1/auth/invitations/accept:
+    post:
+      operationId: acceptInvitation
+      tags: [Auth]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/AcceptInvitation" } } }
+      responses:
+        "200": { description: Invitation accepted and password set. }
+        "400": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "410": { $ref: "#/components/responses/Error" }
   /api/v1/me:
     get:
       operationId: getCurrentUser
@@ -60,6 +73,27 @@ paths:
         "200":
           description: Active session and effective permissions.
           content: { application/json: { schema: { $ref: "#/components/schemas/CurrentUser" } } }
+        "401": { $ref: "#/components/responses/Error" }
+    patch:
+      operationId: updateCurrentUser
+      tags: [Auth]
+      security: [{ sessionCookie: [], csrfHeader: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/UpdateProfile" } } }
+      responses:
+        "200": { description: Own profile updated. }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v1/me/change-password:
+    post:
+      operationId: changeCurrentUserPassword
+      tags: [Auth]
+      security: [{ sessionCookie: [], csrfHeader: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ChangePassword" } } }
+      responses:
+        "204": { description: Password changed and other sessions revoked. }
         "401": { $ref: "#/components/responses/Error" }
   /api/v1/students:
     get:
@@ -98,6 +132,17 @@ paths:
         "200":
           description: Tenant-scoped student.
           content: { application/json: { schema: { $ref: "#/components/schemas/Student" } } }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      operationId: updateStudent
+      tags: [Students]
+      security: [{ sessionCookie: [], csrfHeader: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/CreateStudent" } } }
+      responses:
+        "200": { description: Tenant-scoped student updated. }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
   /api/v1/roles:
@@ -139,10 +184,37 @@ paths:
         content: { application/json: { schema: { $ref: "#/components/schemas/CreateUser" } } }
       responses:
         "201":
-          description: Local MVP account created. The initial password is returned only in this response.
+          description: Invited account created. Delivery status reports whether SMTP accepted the message.
           content: { application/json: { schema: { $ref: "#/components/schemas/OrganizationUser" } } }
         "403": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
+  /api/v1/users/{userId}/invitation:
+    parameters: [{ $ref: "#/components/parameters/UserID" }]
+    post:
+      operationId: resendUserInvitation
+      tags: [Users]
+      security: [{ sessionCookie: [], csrfHeader: [] }]
+      responses:
+        "200": { description: Previous pending invitation revoked and a new email sent. }
+        "403": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+  /api/v1/organization:
+    patch:
+      operationId: updateOrganization
+      tags: [Organization]
+      security: [{ sessionCookie: [], csrfHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name]
+              properties: { name: { type: string, minLength: 1, maxLength: 255 } }
+      responses:
+        "200": { description: Current tenant organization updated. }
+        "403": { $ref: "#/components/responses/Error" }
   /api/v1/students/{studentId}/access:
     parameters: [{ $ref: "#/components/parameters/StudentID" }]
     get:
@@ -358,13 +430,39 @@ components:
       additionalProperties: false
       required: [email, password]
       properties: { email: { type: string, format: email }, password: { type: string, format: password } }
+    AcceptInvitation:
+      type: object
+      additionalProperties: false
+      required: [token, password]
+      properties:
+        token: { type: string, minLength: 32 }
+        password: { type: string, format: password, minLength: 12 }
+    UpdateProfile:
+      type: object
+      additionalProperties: false
+      required: [lastName, firstName, email]
+      properties:
+        lastName: { type: string, maxLength: 100 }
+        firstName: { type: string, maxLength: 100 }
+        middleName: { type: [string, "null"], maxLength: 100 }
+        email: { type: string, format: email, maxLength: 320 }
+    ChangePassword:
+      type: object
+      additionalProperties: false
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword: { type: string, format: password }
+        newPassword: { type: string, format: password, minLength: 12 }
     CurrentUser:
       type: object
-      required: [id, email, displayName, organization, permissions]
+      required: [id, email, displayName, lastName, firstName, organization, permissions]
       properties:
         id: { type: string, format: uuid }
         email: { type: string, format: email }
         displayName: { type: string }
+        lastName: { type: string }
+        firstName: { type: string }
+        middleName: { type: [string, "null"] }
         organization:
           type: object
           required: [id, name]
@@ -418,12 +516,15 @@ components:
         id: { type: string, format: uuid }
         roleId: { type: string, format: uuid }
         displayName: { type: string }
+        lastName: { type: string }
+        firstName: { type: string }
+        middleName: { type: [string, "null"] }
         email: { type: string, format: email }
         roleKey: { type: string }
         roleName: { type: string }
         status: { type: string, enum: [active, invited, blocked] }
         createdAt: { type: string, format: date-time }
-        initialPassword: { type: string, description: Present only in the create response. }
+        invitationDelivery: { type: string, enum: [sent, failed], description: Present in the create response. }
     StudentGrant:
       type: string
       enum: [view, upload, download, edit]

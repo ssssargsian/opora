@@ -3,8 +3,6 @@ package user
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/mail"
@@ -16,13 +14,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"opora.local/api/internal/access"
-	"opora.local/api/internal/auth"
 )
 
 var (
-	ErrConflict     = errors.New("user already belongs to organization")
-	ErrInvalidInput = errors.New("invalid user input")
-	ErrRoleNotFound = errors.New("role not found")
+	ErrConflict           = errors.New("user already belongs to organization")
+	ErrInvalidInput       = errors.New("invalid user input")
+	ErrRoleNotFound       = errors.New("role not found")
+	ErrInvitationDelivery = errors.New("invitation email could not be delivered")
 )
 
 type Role struct {
@@ -33,15 +31,18 @@ type Role struct {
 }
 
 type User struct {
-	ID              uuid.UUID `json:"id"`
-	RoleID          uuid.UUID `json:"roleId"`
-	DisplayName     string    `json:"displayName"`
-	Email           string    `json:"email"`
-	RoleKey         string    `json:"roleKey"`
-	RoleName        string    `json:"roleName"`
-	Status          string    `json:"status"`
-	CreatedAt       time.Time `json:"createdAt"`
-	InitialPassword string    `json:"initialPassword,omitempty"`
+	ID                 uuid.UUID `json:"id"`
+	RoleID             uuid.UUID `json:"roleId"`
+	DisplayName        string    `json:"displayName"`
+	LastName           string    `json:"lastName"`
+	FirstName          string    `json:"firstName"`
+	MiddleName         *string   `json:"middleName"`
+	Email              string    `json:"email"`
+	RoleKey            string    `json:"roleKey"`
+	RoleName           string    `json:"roleName"`
+	Status             string    `json:"status"`
+	CreatedAt          time.Time `json:"createdAt"`
+	InvitationDelivery string    `json:"invitationDelivery,omitempty"`
 }
 
 type CreateInput struct {
@@ -76,9 +77,9 @@ func (r *Repository) Roles(ctx context.Context, organizationID uuid.UUID) ([]Rol
 }
 
 func (r *Repository) List(ctx context.Context, organizationID uuid.UUID) ([]User, error) {
-	rows, err := r.pool.Query(ctx, `SELECT u.id,u.display_name,u.email,r.id,r.role_key,r.name,
-		CASE WHEN NOT u.is_active OR NOT m.is_active THEN 'blocked'
-		     WHEN u.password_hash IS NULL THEN 'invited' ELSE 'active' END,m.created_at
+	rows, err := r.pool.Query(ctx, `SELECT u.id,u.display_name,COALESCE(u.last_name,''),COALESCE(u.first_name,''),u.middle_name,u.email,r.id,r.role_key,r.name,
+		CASE WHEN u.password_hash IS NULL THEN 'invited'
+		     WHEN NOT u.is_active OR NOT m.is_active THEN 'blocked' ELSE 'active' END,m.created_at
 		FROM memberships m JOIN users u ON u.id=m.user_id JOIN roles r ON r.id=m.role_id
 		WHERE m.organization_id=$1 ORDER BY u.display_name,u.id`, organizationID)
 	if err != nil {
@@ -88,7 +89,7 @@ func (r *Repository) List(ctx context.Context, organizationID uuid.UUID) ([]User
 	result := make([]User, 0)
 	for rows.Next() {
 		var item User
-		if err := rows.Scan(&item.ID, &item.DisplayName, &item.Email, &item.RoleID, &item.RoleKey, &item.RoleName, &item.Status, &item.CreatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.DisplayName, &item.LastName, &item.FirstName, &item.MiddleName, &item.Email, &item.RoleID, &item.RoleKey, &item.RoleName, &item.Status, &item.CreatedAt); err != nil {
 			return nil, err
 		}
 		result = append(result, item)
@@ -96,7 +97,7 @@ func (r *Repository) List(ctx context.Context, organizationID uuid.UUID) ([]User
 	return result, rows.Err()
 }
 
-func (r *Repository) Create(ctx context.Context, organizationID, actorID uuid.UUID, input CreateInput, passwordHash string) (User, error) {
+func (r *Repository) Create(ctx context.Context, organizationID, actorID uuid.UUID, input CreateInput, invitationID uuid.UUID, tokenHash [32]byte, expiresAt time.Time) (User, error) {
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return User{}, err
@@ -121,8 +122,9 @@ func (r *Repository) Create(ctx context.Context, organizationID, actorID uuid.UU
 		if err != nil {
 			return User{}, err
 		}
-		if _, err = tx.Exec(ctx, `INSERT INTO users(id,email,display_name,password_hash) VALUES($1,$2,$3,$4)`,
-			userID, input.Email, joinName(input.LastName, input.FirstName, input.MiddleName), passwordHash); err != nil {
+		if _, err = tx.Exec(ctx, `INSERT INTO users(id,email,display_name,last_name,first_name,middle_name,is_active)
+			VALUES($1,$2,$3,$4,$5,$6,false)`, userID, input.Email, joinName(input.LastName, input.FirstName, input.MiddleName),
+			input.LastName, input.FirstName, input.MiddleName); err != nil {
 			return User{}, err
 		}
 	} else if err != nil {
@@ -136,8 +138,8 @@ func (r *Repository) Create(ctx context.Context, organizationID, actorID uuid.UU
 	if err != nil {
 		return User{}, err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO memberships(id,organization_id,user_id,role_id,all_students)
-		VALUES($1,$2,$3,$4,$5)`, membershipID, organizationID, userID, roleID, allStudents)
+	_, err = tx.Exec(ctx, `INSERT INTO memberships(id,organization_id,user_id,role_id,all_students,is_active)
+		VALUES($1,$2,$3,$4,$5,false)`, membershipID, organizationID, userID, roleID, allStudents)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return User{}, ErrConflict
@@ -149,10 +151,15 @@ func (r *Repository) Create(ctx context.Context, organizationID, actorID uuid.UU
 	if err != nil {
 		return User{}, err
 	}
-	metadata, _ := json.Marshal(map[string]any{"roleKey": input.RoleKey, "status": "active"})
+	if _, err = tx.Exec(ctx, `INSERT INTO user_invitations
+		(id,organization_id,user_id,token_hash,expires_at,created_by) VALUES($1,$2,$3,$4,$5,$6)`,
+		invitationID, organizationID, userID, tokenHash[:], expiresAt, actorID); err != nil {
+		return User{}, err
+	}
+	metadata, _ := json.Marshal(map[string]any{"roleKey": input.RoleKey, "expiresAt": expiresAt})
 	if _, err = tx.Exec(ctx, `INSERT INTO audit_events
 		(id,organization_id,actor_user_id,action,resource_type,resource_id,metadata)
-		VALUES($1,$2,$3,'user.invite','user',$4,$5)`, eventID, organizationID, actorID, userID, metadata); err != nil {
+		VALUES($1,$2,$3,'user.invitation_created','user',$4,$5)`, eventID, organizationID, actorID, userID, metadata); err != nil {
 		return User{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -163,21 +170,36 @@ func (r *Repository) Create(ctx context.Context, organizationID, actorID uuid.UU
 
 func (r *Repository) Get(ctx context.Context, organizationID, userID uuid.UUID) (User, error) {
 	var item User
-	err := r.pool.QueryRow(ctx, `SELECT u.id,u.display_name,u.email,r.id,r.role_key,r.name,
-		CASE WHEN NOT u.is_active OR NOT m.is_active THEN 'blocked'
-		     WHEN u.password_hash IS NULL THEN 'invited' ELSE 'active' END,m.created_at
+	err := r.pool.QueryRow(ctx, `SELECT u.id,u.display_name,COALESCE(u.last_name,''),COALESCE(u.first_name,''),u.middle_name,u.email,r.id,r.role_key,r.name,
+		CASE WHEN u.password_hash IS NULL THEN 'invited'
+		     WHEN NOT u.is_active OR NOT m.is_active THEN 'blocked' ELSE 'active' END,m.created_at
 		FROM memberships m JOIN users u ON u.id=m.user_id JOIN roles r ON r.id=m.role_id
 		WHERE m.organization_id=$1 AND m.user_id=$2`, organizationID, userID).Scan(
-		&item.ID, &item.DisplayName, &item.Email, &item.RoleID, &item.RoleKey, &item.RoleName, &item.Status, &item.CreatedAt)
+		&item.ID, &item.DisplayName, &item.LastName, &item.FirstName, &item.MiddleName, &item.Email, &item.RoleID, &item.RoleKey, &item.RoleName, &item.Status, &item.CreatedAt)
 	return item, err
 }
 
 type Service struct {
 	repo          *Repository
 	authorization access.AuthorizationService
+	mailer        InvitationMailer
+	invitationTTL time.Duration
+	now           func() time.Time
 }
 
-func NewService(repo *Repository) *Service { return &Service{repo: repo} }
+type Option func(*Service)
+
+func WithInvitationMailer(mailer InvitationMailer) Option {
+	return func(service *Service) { service.mailer = mailer }
+}
+
+func NewService(repo *Repository, options ...Option) *Service {
+	service := &Service{repo: repo, mailer: DisabledInvitationMailer{}, invitationTTL: 48 * time.Hour, now: time.Now}
+	for _, option := range options {
+		option(service)
+	}
+	return service
+}
 
 func (s *Service) Roles(ctx context.Context, actor access.Actor) ([]Role, error) {
 	if err := s.requireAny(ctx, actor, access.UsersView, access.UsersCreate, access.UsersInvite, access.UsersManage); err != nil {
@@ -212,19 +234,29 @@ func (s *Service) Create(ctx context.Context, actor access.Actor, input CreateIn
 	if err != nil || address.Address != input.Email || len(input.Email) > 320 {
 		return User{}, ErrInvalidInput
 	}
-	initialPassword, err := generateInitialPassword()
+	invitationID, err := uuid.NewV7()
 	if err != nil {
 		return User{}, err
 	}
-	passwordHash, err := auth.HashPassword(initialPassword)
+	token, tokenHash, err := newInvitationToken()
 	if err != nil {
 		return User{}, err
 	}
-	created, err := s.repo.Create(ctx, actor.OrganizationID, actor.UserID, input, passwordHash)
+	expiresAt := s.now().Add(s.invitationTTL)
+	created, err := s.repo.Create(ctx, actor.OrganizationID, actor.UserID, input, invitationID, tokenHash, expiresAt)
 	if err != nil {
 		return User{}, err
 	}
-	created.InitialPassword = initialPassword
+	organizationName, err := s.repo.OrganizationName(ctx, actor.OrganizationID)
+	if err != nil {
+		return created, err
+	}
+	if err := s.mailer.SendInvitation(ctx, InvitationMessage{Email: created.Email, DisplayName: created.DisplayName,
+		OrganizationName: organizationName, Token: token, ExpiresAt: expiresAt}); err != nil {
+		created.InvitationDelivery = "failed"
+		return created, ErrInvitationDelivery
+	}
+	created.InvitationDelivery = "sent"
 	return created, nil
 }
 
@@ -236,14 +268,6 @@ func (s *Service) requireAny(ctx context.Context, actor access.Actor, permission
 		}
 	}
 	return access.ErrPermissionDenied
-}
-
-func generateInitialPassword() (string, error) {
-	random := make([]byte, 15)
-	if _, err := rand.Read(random); err != nil {
-		return "", err
-	}
-	return "Op-" + base64.RawURLEncoding.EncodeToString(random), nil
 }
 
 func validName(value string) bool { return value != "" && len([]rune(value)) <= 100 }

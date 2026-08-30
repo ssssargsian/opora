@@ -57,7 +57,7 @@ func Run(ctx context.Context, pool *pgxpool.Pool, cfg config.Config, logger *slo
 		if _, err = tx.Exec(ctx, `INSERT INTO organizations(id,name) VALUES($1,$2)`, organizationID, cfg.Dev.Organization); err != nil {
 			return err
 		}
-		if _, err = tx.Exec(ctx, `INSERT INTO users(id,email,password_hash,display_name) VALUES($1,$2,$3,'Администратор Опоры')`, userID, email, passwordHash); err != nil {
+		if _, err = tx.Exec(ctx, `INSERT INTO users(id,email,password_hash,display_name,last_name,first_name) VALUES($1,$2,$3,'Администратор Опоры','Администратор','Опоры')`, userID, email, passwordHash); err != nil {
 			return err
 		}
 		if _, err = tx.Exec(ctx, `INSERT INTO roles(id,organization_id,role_key,name,is_system) VALUES($1,$2,'organization_admin','Администратор организации',true)`, roleID, organizationID); err != nil {

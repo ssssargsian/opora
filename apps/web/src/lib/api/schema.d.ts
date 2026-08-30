@@ -68,6 +68,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/invitations/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["acceptInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me": {
         parameters: {
             query?: never;
@@ -78,6 +94,22 @@ export interface paths {
         get: operations["getCurrentUser"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["updateCurrentUser"];
+        trace?: never;
+    };
+    "/api/v1/me/change-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["changeCurrentUserPassword"];
         delete?: never;
         options?: never;
         head?: never;
@@ -115,7 +147,7 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        patch: operations["updateStudent"];
         trace?: never;
     };
     "/api/v1/roles": {
@@ -148,6 +180,40 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/{userId}/invitation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: components["parameters"]["UserID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["resendUserInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/organization": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["updateOrganization"];
         trace?: never;
     };
     "/api/v1/students/{studentId}/access": {
@@ -343,12 +409,33 @@ export interface components {
             /** Format: password */
             password: string;
         };
+        AcceptInvitation: {
+            token: string;
+            /** Format: password */
+            password: string;
+        };
+        UpdateProfile: {
+            lastName: string;
+            firstName: string;
+            middleName?: string | null;
+            /** Format: email */
+            email: string;
+        };
+        ChangePassword: {
+            /** Format: password */
+            currentPassword: string;
+            /** Format: password */
+            newPassword: string;
+        };
         CurrentUser: {
             /** Format: uuid */
             id: string;
             /** Format: email */
             email: string;
             displayName: string;
+            lastName: string;
+            firstName: string;
+            middleName?: string | null;
             organization: {
                 /** Format: uuid */
                 id: string;
@@ -401,6 +488,9 @@ export interface components {
             /** Format: uuid */
             roleId: string;
             displayName: string;
+            lastName?: string;
+            firstName?: string;
+            middleName?: string | null;
             /** Format: email */
             email: string;
             roleKey: string;
@@ -409,8 +499,11 @@ export interface components {
             status: "active" | "invited" | "blocked";
             /** Format: date-time */
             createdAt: string;
-            /** @description Present only in the create response. */
-            initialPassword?: string;
+            /**
+             * @description Present in the create response.
+             * @enum {string}
+             */
+            invitationDelivery?: "sent" | "failed";
         };
         /** @enum {string} */
         StudentGrant: "view" | "upload" | "download" | "edit";
@@ -583,6 +676,31 @@ export interface operations {
             403: components["responses"]["Error"];
         };
     };
+    acceptInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AcceptInvitation"];
+            };
+        };
+        responses: {
+            /** @description Invitation accepted and password set. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            410: components["responses"]["Error"];
+        };
+    };
     getCurrentUser: {
         parameters: {
             query?: never;
@@ -600,6 +718,52 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["CurrentUser"];
                 };
+            };
+            401: components["responses"]["Error"];
+        };
+    };
+    updateCurrentUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateProfile"];
+            };
+        };
+        responses: {
+            /** @description Own profile updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: components["responses"]["Error"];
+        };
+    };
+    changeCurrentUserPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangePassword"];
+            };
+        };
+        responses: {
+            /** @description Password changed and other sessions revoked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             401: components["responses"]["Error"];
         };
@@ -676,6 +840,32 @@ export interface operations {
             404: components["responses"]["Error"];
         };
     };
+    updateStudent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                studentId: components["parameters"]["StudentID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateStudent"];
+            };
+        };
+        responses: {
+            /** @description Tenant-scoped student updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+        };
+    };
     listRoles: {
         parameters: {
             query?: never;
@@ -735,7 +925,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Local MVP account created. The initial password is returned only in this response. */
+            /** @description Invited account created. Delivery status reports whether SMTP accepted the message. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -746,6 +936,53 @@ export interface operations {
             };
             403: components["responses"]["Error"];
             409: components["responses"]["Error"];
+        };
+    };
+    resendUserInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: components["parameters"]["UserID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Previous pending invitation revoked and a new email sent. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
+            502: components["responses"]["Error"];
+        };
+    };
+    updateOrganization: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Current tenant organization updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Error"];
         };
     };
     listStudentAccess: {

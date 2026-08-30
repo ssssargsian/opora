@@ -148,6 +148,7 @@ func writeMe(w http.ResponseWriter, p Principal) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"id": p.Session.UserID, "email": p.Email, "displayName": p.DisplayName,
+		"lastName": p.LastName, "firstName": p.FirstName, "middleName": p.MiddleName,
 		"organization": map[string]any{"id": p.Session.OrganizationID, "name": p.OrganizationName},
 		"permissions":  permissions,
 	})

@@ -20,8 +20,9 @@ export const studentsAPI = {
   },
   async get(id: string): Promise<Student> {
     const student = await apiFetch<APIStudent>(`/api/v1/students/${encodeURIComponent(id)}`);
-    return { ...mapSummary(student), birthDate: student.birthDate
-      ? new Intl.DateTimeFormat("ru-RU", { dateStyle: "long" }).format(new Date(student.birthDate)) : "Не указана", access: [] };
+    return { ...mapSummary(student), lastName: student.lastName, firstName: student.firstName,
+      middleName: student.middleName ?? "", birthDateValue: student.birthDate ?? "", birthDate: student.birthDate
+        ? new Intl.DateTimeFormat("ru-RU", { dateStyle: "long" }).format(new Date(student.birthDate)) : "Не указана", access: [] };
   },
   async create(input: { lastName: string; firstName: string; middleName?: string; birthDate?: string; className?: string }): Promise<StudentSummary> {
     const student = await apiFetch<APIStudent>("/api/v1/students", {
@@ -35,5 +36,12 @@ export const studentsAPI = {
       }),
     });
     return mapSummary(student);
+  },
+  async update(id: string, input: { lastName: string; firstName: string; middleName?: string; birthDate?: string; className?: string }): Promise<Student> {
+    await apiFetch<APIStudent>(`/api/v1/students/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ ...input, middleName: input.middleName || null, birthDate: input.birthDate || null, className: input.className || null }),
+    });
+    return studentsAPI.get(id);
   },
 };

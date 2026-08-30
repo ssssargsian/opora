@@ -29,7 +29,7 @@ func main() {
 	if err != nil {
 		fatal("database configuration is invalid")
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if err := db.PingContext(ctx); err != nil {
 		fatal("database is unavailable")
 	}

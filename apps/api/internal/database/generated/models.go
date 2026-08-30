@@ -129,4 +129,19 @@ type User struct {
 	IsActive     bool               `json:"is_active"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+	LastName     pgtype.Text        `json:"last_name"`
+	FirstName    pgtype.Text        `json:"first_name"`
+	MiddleName   pgtype.Text        `json:"middle_name"`
+}
+
+type UserInvitation struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	UserID         pgtype.UUID        `json:"user_id"`
+	TokenHash      []byte             `json:"token_hash"`
+	ExpiresAt      pgtype.Timestamptz `json:"expires_at"`
+	CreatedBy      pgtype.UUID        `json:"created_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	AcceptedAt     pgtype.Timestamptz `json:"accepted_at"`
+	RevokedAt      pgtype.Timestamptz `json:"revoked_at"`
 }

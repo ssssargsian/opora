@@ -39,6 +39,10 @@ export type StudentSummary = {
 
 export type Student = StudentSummary & {
   birthDate: string;
+  birthDateValue?: string;
+  lastName?: string;
+  firstName?: string;
+  middleName?: string;
   access: StudentAccess[];
 };
 

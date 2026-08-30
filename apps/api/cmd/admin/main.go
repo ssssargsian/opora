@@ -115,7 +115,9 @@ func createFirstAdmin(ctx context.Context, pool databasePool, email, name, organ
 	if _, err = tx.Exec(ctx, `INSERT INTO organizations(id,name) VALUES($1,$2)`, organizationID, organization); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO users(id,email,password_hash,display_name) VALUES($1,$2,$3,$4)`, userID, email, passwordHash, name); err != nil {
+	lastName, firstName := splitDisplayName(name)
+	if _, err = tx.Exec(ctx, `INSERT INTO users(id,email,password_hash,display_name,last_name,first_name) VALUES($1,$2,$3,$4,$5,$6)`,
+		userID, email, passwordHash, name, lastName, firstName); err != nil {
 		return err
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO roles(id,organization_id,role_key,name,is_system,default_all_students)
@@ -148,6 +150,14 @@ func createFirstAdmin(ctx context.Context, pool databasePool, email, name, organ
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func splitDisplayName(value string) (string, string) {
+	parts := strings.Fields(value)
+	if len(parts) < 2 {
+		return value, "Пользователь"
+	}
+	return parts[0], strings.Join(parts[1:], " ")
 }
 
 func normalizeEmail(value string) (string, error) {

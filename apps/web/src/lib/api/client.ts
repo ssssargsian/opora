@@ -37,6 +37,9 @@ export type CurrentUser = {
   id: string;
   email: string;
   displayName: string;
+  lastName: string;
+  firstName: string;
+  middleName: string | null;
   organization: { id: string; name: string };
   permissions: string[];
 };
@@ -47,4 +50,16 @@ export const authAPI = {
     method: "POST", body: JSON.stringify({ email, password }),
   }),
   logout: () => apiFetch<void>("/api/v1/auth/logout", { method: "POST" }),
+  updateProfile: (input: { lastName: string; firstName: string; middleName?: string; email: string }) =>
+    apiFetch("/api/v1/me", { method: "PATCH", body: JSON.stringify({ ...input, middleName: input.middleName || null }) }),
+  changePassword: (input: { currentPassword: string; newPassword: string }) =>
+    apiFetch<void>("/api/v1/me/change-password", { method: "POST", body: JSON.stringify(input) }),
+  acceptInvitation: (token: string, password: string) =>
+    apiFetch<{ email: string }>("/api/v1/auth/invitations/accept", { method: "POST", body: JSON.stringify({ token, password }) }),
+};
+
+export const organizationAPI = {
+  update: (name: string) => apiFetch<{ id: string; name: string; updatedAt: string }>("/api/v1/organization", {
+    method: "PATCH", body: JSON.stringify({ name }),
+  }),
 };

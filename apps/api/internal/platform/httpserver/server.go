@@ -16,6 +16,7 @@ import (
 	"opora.local/api/internal/auth"
 	"opora.local/api/internal/config"
 	"opora.local/api/internal/document"
+	"opora.local/api/internal/organization"
 	"opora.local/api/internal/platform/apierror"
 	"opora.local/api/internal/platform/requestid"
 	"opora.local/api/internal/student"
@@ -30,13 +31,14 @@ type ReadinessChecker interface {
 
 // Application contains the domain HTTP handlers mounted by the modular monolith.
 type Application struct {
-	Auth      *auth.Handler
-	Students  *student.Handler
-	Documents *document.Handler
-	Users     *user.Handler
-	Access    *studentaccess.Handler
-	Audit     *audit.Handler
-	WebOrigin string
+	Auth         *auth.Handler
+	Students     *student.Handler
+	Documents    *document.Handler
+	Users        *user.Handler
+	Access       *studentaccess.Handler
+	Audit        *audit.Handler
+	Organization *organization.Handler
+	WebOrigin    string
 }
 
 // New creates an HTTP server with bounded timeouts and safe middleware.
@@ -79,16 +81,22 @@ func mountApplication(router chi.Router, app Application) {
 	router.Route("/api/v1", func(api chi.Router) {
 		api.Use(app.Auth.OptionalSession)
 		api.With(requireOrigin(app.WebOrigin)).Post("/auth/login", app.Auth.Login)
+		api.With(requireOrigin(app.WebOrigin)).Post("/auth/invitations/accept", app.Users.AcceptInvitation)
 		api.Group(func(protected chi.Router) {
 			protected.Use(app.Auth.RequireSession)
 			protected.Get("/me", app.Auth.Me)
+			protected.With(requireOrigin(app.WebOrigin), app.Auth.RequireCSRF).Patch("/me", app.Users.UpdateProfile)
+			protected.With(requireOrigin(app.WebOrigin), app.Auth.RequireCSRF).Post("/me/change-password", app.Users.ChangePassword)
 			protected.With(requireOrigin(app.WebOrigin), app.Auth.RequireCSRF).Post("/auth/logout", app.Auth.Logout)
 			protected.Get("/students", app.Students.List)
 			protected.Get("/students/{studentId}", app.Students.Get)
 			protected.With(requireOrigin(app.WebOrigin), app.Auth.RequireCSRF).Post("/students", app.Students.Create)
+			protected.With(requireOrigin(app.WebOrigin), app.Auth.RequireCSRF).Patch("/students/{studentId}", app.Students.Update)
 			protected.Get("/roles", app.Users.Roles)
 			protected.Get("/users", app.Users.List)
 			protected.With(requireOrigin(app.WebOrigin), app.Auth.RequireCSRF).Post("/users", app.Users.Create)
+			protected.With(requireOrigin(app.WebOrigin), app.Auth.RequireCSRF).Post("/users/{userId}/invitation", app.Users.ResendInvitation)
+			protected.With(requireOrigin(app.WebOrigin), app.Auth.RequireCSRF).Patch("/organization", app.Organization.Update)
 			protected.Get("/students/{studentId}/access", app.Access.List)
 			protected.With(requireOrigin(app.WebOrigin), app.Auth.RequireCSRF).Post("/students/{studentId}/access", app.Access.Set)
 			protected.With(requireOrigin(app.WebOrigin), app.Auth.RequireCSRF).Patch("/students/{studentId}/access", app.Access.Set)

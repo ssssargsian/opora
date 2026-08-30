@@ -242,9 +242,13 @@ func (h *Handler) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if callback.Status != 2 && callback.Status != 6 {
+		h.logger.InfoContext(r.Context(), "ONLYOFFICE callback acknowledged", "document_id", documentID, "status", callback.Status)
 		writeJSON(w, http.StatusOK, map[string]int{"error": 0})
 		return
 	}
+	scheme, host := h.onlyOffice.DownloadEndpoint(callback.URL)
+	h.logger.InfoContext(r.Context(), "ONLYOFFICE save callback received", "document_id", documentID,
+		"status", callback.Status, "download_scheme", scheme, "download_host", host)
 	data, err := h.onlyOffice.FetchEdited(r.Context(), callback.URL)
 	if err == nil {
 		_, err = h.documents.SaveEditedVersion(r.Context(), claims.OrganizationID, claims.ActorID, documentID, claims.VersionID, data, requestAudit(r))
@@ -268,6 +272,10 @@ func safeErrorType(err error) string {
 		return "unsupported_file"
 	case errors.Is(err, ErrMalwareDetected):
 		return "unsafe_file"
+	case errors.Is(err, ErrUntrustedDownloadURL):
+		return "untrusted_download_origin"
+	case errors.Is(err, ErrOnlyOfficeDownload):
+		return "download_failed"
 	default:
 		return "integration_error"
 	}
